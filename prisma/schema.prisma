@@ -14,6 +14,7 @@ model User {
   passwordHash String
   role         String   @default("seller") // "admin" atau "seller"
   createdAt    DateTime @default(now())
+  stores       Store[]
 }
 
 model Review {
@@ -26,4 +27,45 @@ model Review {
   createdAt DateTime @default(now())
 
   @@index([type])
+}
+
+model Category {
+  id     Int     @id @default(autoincrement())
+  name   String  @unique
+  stores Store[]
+}
+
+model Store {
+  id              Int       @id @default(autoincrement())
+  slug            String    @unique
+  name            String
+  ownerName       String    @default("")
+  categoryId      Int
+  category        Category  @relation(fields: [categoryId], references: [id])
+  zone            String    @default("")
+  status          String    @default("menunggu_verifikasi") // buka, tutup, menunggu_verifikasi
+  openTime        String    @default("06:00")
+  closeTime       String    @default("17:00")
+  establishedYear Int?
+  phone           String    @default("")
+  email           String    @default("")
+  description     String    @default("")
+  bannerUrl       String?
+  logoUrl         String?
+  sellerId        Int?
+  seller          User?     @relation(fields: [sellerId], references: [id])
+  products        Product[]
+  createdAt       DateTime  @default(now())
+
+  @@index([categoryId])
+}
+
+model Product {
+  id          Int     @id @default(autoincrement())
+  storeId     Int
+  store       Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name        String
+  price       Int     @default(0)
+  description String  @default("")
+  photoUrl    String?
 }
