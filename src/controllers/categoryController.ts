@@ -1,12 +1,7 @@
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { cleanString } from '../lib/validate';
-
-const serverError = (res: Response, error: unknown) => {
-  console.error(error);
-  return res.status(500).json({ error: 'Terjadi kesalahan di server.' });
-};
+import { cleanString, isRecord, parsePositiveId } from '../lib/validate';
 
 const toDto = (c: { id: number; name: string; _count: { stores: number } }) => ({
   id: c.id,
@@ -15,7 +10,7 @@ const toDto = (c: { id: number; name: string; _count: { stores: number } }) => (
 });
 
 // GET /api/categories (terbuka untuk umum)
-export async function listCategories(_req: Request, res: Response) {
+export async function listCategories(_req: Request, res: Response, next: NextFunction) {
   try {
     const rows = await prisma.category.findMany({
       orderBy: { id: 'asc' },
@@ -23,17 +18,24 @@ export async function listCategories(_req: Request, res: Response) {
     });
     return res.json(rows.map(toDto));
   } catch (error) {
-    return serverError(res, error);
+    next(error);
   }
 }
 
 // POST /api/categories (admin)
-export async function createCategory(req: Request, res: Response) {
+export async function createCategory(req: Request, res: Response, next: NextFunction) {
   try {
-    const name = cleanString(req.body?.name);
-    if (name.length < 2 || name.length > 40) {
-      return res.status(400).json({ error: 'Nama kategori harus 2 sampai 40 karakter.' });
+    const errors: string[] = [];
+    if (!isRecord(req.body)) errors.push('Data kategori harus berupa objek.');
+    const body = isRecord(req.body) ? req.body : {};
+    const name = cleanString(body.name);
+    if (typeof body.name !== 'string' || name.length < 2 || name.length > 40) {
+      errors.push('Nama kategori harus 2 sampai 40 karakter.');
     }
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors[0], errors });
+    }
+
     const row = await prisma.category.create({
       data: { name },
       include: { _count: { select: { stores: true } } },
@@ -43,19 +45,27 @@ export async function createCategory(req: Request, res: Response) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return res.status(409).json({ error: 'Nama kategori sudah ada.' });
     }
-    return serverError(res, error);
+    next(error);
   }
 }
 
 // PUT /api/categories/:id (admin)
-export async function updateCategory(req: Request, res: Response) {
+export async function updateCategory(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
-    const name = cleanString(req.body?.name);
-    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'ID tidak valid.' });
-    if (name.length < 2 || name.length > 40) {
-      return res.status(400).json({ error: 'Nama kategori harus 2 sampai 40 karakter.' });
+    const id = parsePositiveId(req.params.id);
+    if (id === null) return res.status(400).json({ error: 'ID tidak valid.' });
+
+    const errors: string[] = [];
+    if (!isRecord(req.body)) errors.push('Data kategori harus berupa objek.');
+    const body = isRecord(req.body) ? req.body : {};
+    const name = cleanString(body.name);
+    if (typeof body.name !== 'string' || name.length < 2 || name.length > 40) {
+      errors.push('Nama kategori harus 2 sampai 40 karakter.');
     }
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors[0], errors });
+    }
+
     const row = await prisma.category.update({
       where: { id },
       data: { name },
@@ -67,15 +77,15 @@ export async function updateCategory(req: Request, res: Response) {
       if (error.code === 'P2025') return res.status(404).json({ error: 'Kategori tidak ditemukan.' });
       if (error.code === 'P2002') return res.status(409).json({ error: 'Nama kategori sudah ada.' });
     }
-    return serverError(res, error);
+    next(error);
   }
 }
 
 // DELETE /api/categories/:id (admin)
-export async function deleteCategory(req: Request, res: Response) {
+export async function deleteCategory(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'ID tidak valid.' });
+    const id = parsePositiveId(req.params.id);
+    if (id === null) return res.status(400).json({ error: 'ID tidak valid.' });
 
     const used = await prisma.store.count({ where: { categoryId: id } });
     if (used > 0) {
@@ -87,6 +97,6 @@ export async function deleteCategory(req: Request, res: Response) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return res.status(404).json({ error: 'Kategori tidak ditemukan.' });
     }
-    return serverError(res, error);
+    next(error);
   }
 }

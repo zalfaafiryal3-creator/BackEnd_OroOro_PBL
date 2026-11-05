@@ -6,7 +6,7 @@ export function validatePassword(password: unknown): string[] {
 
   const errors: string[] = [];
   if (password.length < 8) errors.push('Password minimal 8 karakter.');
-  if (password.length > 72) errors.push('Password maksimal 72 karakter.'); // batas bcrypt
+  if (Buffer.byteLength(password, 'utf8') > 72) errors.push('Password maksimal 72 byte.');
   if (!/[A-Z]/.test(password)) errors.push('Password harus mengandung huruf besar.');
   if (!/[a-z]/.test(password)) errors.push('Password harus mengandung huruf kecil.');
   if (!/[0-9]/.test(password)) errors.push('Password harus mengandung angka.');

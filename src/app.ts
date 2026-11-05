@@ -1,13 +1,19 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import authRoutes from './routes/authRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import storeRoutes from './routes/storeRoutes';
 import { marketReviewRoutes, storeReviewRoutes } from './routes/reviewRoutes';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { requestLogger } from './middleware/requestLogger';
 
 
 export const app = express();
+
+app.use(helmet());
+app.use(requestLogger);
 
 const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigins = (process.env.CORS_ORIGIN ?? 'http://localhost:3000')
@@ -41,5 +47,5 @@ app.use('/api/market-reviews', marketReviewRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/stores', storeRoutes);
 
-// Endpoint tidak dikenal
-app.use((_req, res) => res.status(404).json({ error: 'Endpoint tidak ditemukan.' }));
+app.use(notFoundHandler);
+app.use(errorHandler);

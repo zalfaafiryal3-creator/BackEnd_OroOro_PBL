@@ -1,9 +1,9 @@
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { hash, compare, hashSync } from 'bcryptjs';
 import { sign } from 'jsonwebtoken';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { cleanString, isValidEmail, isValidName } from '../lib/validate';
+import { cleanString, isRecord, isValidEmail, isValidName } from '../lib/validate';
 import { validatePassword } from '../lib/validatePassword';
 
 const COOKIE_NAME = 'token';
@@ -16,7 +16,10 @@ const DUMMY_HASH = hashSync('password-palsu', 10);
 type UserRow = { id: number; name: string; email: string; role: string };
 
 function createToken(user: { id: number; role: string }): string {
-  return sign({ id: user.id, role: user.role }, process.env.JWT_SECRET as string, { expiresIn: '7d' });
+  return sign({ id: user.id, role: user.role }, process.env.JWT_SECRET as string, {
+    expiresIn: '7d',
+    algorithm: 'HS256',
+  });
 }
 
 const cookieOptions = {
@@ -29,29 +32,43 @@ const cookieOptions = {
 const publicUser = (u: UserRow) => ({ id: u.id, name: u.name, email: u.email, role: u.role });
 
 // POST /api/auth/register
-export async function register(req: Request, res: Response) {
+export async function register(req: Request, res: Response, next: NextFunction) {
   try {
-    const name = cleanString(req.body?.name);
-    const email = cleanString(req.body?.email).toLowerCase();
-    const password = req.body?.password;
-    const confirmPassword = req.body?.confirmPassword;
-
     const errors: string[] = [];
-    if (!isValidName(name)) errors.push('Nama harus 2 sampai 60 karakter.');
-    if (!isValidEmail(email)) errors.push('Format email tidak valid.');
+    if (!isRecord(req.body)) {
+      errors.push('Data pendaftaran harus berupa objek.');
+    }
+
+    const body = isRecord(req.body) ? req.body : {};
+    const name = cleanString(body.name);
+    const email = cleanString(body.email).toLowerCase();
+    const password = body.password;
+    const passwordValue = typeof password === 'string' ? password : '';
+    const confirmPassword = body.confirmPassword;
+
+    if (typeof body.name !== 'string' || !isValidName(name)) {
+      errors.push('Nama harus 2 sampai 60 karakter.');
+    }
+    if (typeof body.email !== 'string' || !isValidEmail(email)) {
+      errors.push('Format email tidak valid.');
+    }
     errors.push(...validatePassword(password));
-    if (confirmPassword !== undefined && confirmPassword !== password) {
+    if (typeof confirmPassword !== 'string' || confirmPassword.length === 0) {
+      errors.push('Konfirmasi password wajib diisi.');
+    } else if (confirmPassword !== password) {
       errors.push('Konfirmasi password tidak sama.');
+    }
+    if (
+      body.role !== undefined &&
+      body.role !== 'admin' &&
+      body.role !== 'seller'
+    ) {
+      errors.push('Role tidak valid.');
     }
     if (errors.length > 0) return res.status(400).json({ error: errors[0], errors });
 
-    // Akun pertama jadi admin, berikutnya seller.
-    // Peran TIDAK diambil dari kiriman pengguna supaya tidak bisa asal mengaku admin.
-    const total = await prisma.user.count();
-    const role = total === 0 ? 'admin' : 'seller';
-
-    const passwordHash = await hash(password as string, 10);
-    const user = await prisma.user.create({ data: { name, email, passwordHash, role } });
+    const passwordHash = await hash(passwordValue, 10);
+    const user = await prisma.user.create({ data: { name, email, passwordHash, role: 'seller' } });
 
     const token = createToken(user);
     res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: SEVEN_DAYS_MS });
@@ -60,23 +77,37 @@ export async function register(req: Request, res: Response) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return res.status(409).json({ error: 'Email sudah terdaftar.' });
     }
-    console.error(error);
-    return res.status(500).json({ error: 'Terjadi kesalahan di server.' });
+    next(error);
   }
 }
 
 // POST /api/auth/login
-export async function login(req: Request, res: Response) {
+export async function login(req: Request, res: Response, next: NextFunction) {
   try {
-    const email = cleanString(req.body?.email).toLowerCase();
-    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    const errors: string[] = [];
+    if (!isRecord(req.body)) errors.push('Data login harus berupa objek.');
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email dan password wajib diisi.' });
+    const body = isRecord(req.body) ? req.body : {};
+    const email = cleanString(body.email).toLowerCase();
+    const password = body.password;
+    const passwordValue = typeof password === 'string' ? password : '';
+
+    if (typeof body.email !== 'string' || !email) {
+      errors.push('Email wajib diisi.');
+    } else if (!isValidEmail(email)) {
+      errors.push('Format email tidak valid.');
+    }
+    if (!passwordValue) {
+      errors.push('Password wajib diisi.');
+    } else if (Buffer.byteLength(passwordValue, 'utf8') > 72) {
+      errors.push('Password maksimal 72 byte.');
+    }
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors[0], errors });
     }
 
     const user = await prisma.user.findUnique({ where: { email } });
-    const cocok = await compare(password, user ? user.passwordHash : DUMMY_HASH);
+    const cocok = await compare(passwordValue, user ? user.passwordHash : DUMMY_HASH);
 
     if (!user || !cocok) {
       return res.status(401).json({ error: 'Email atau password salah.' });
@@ -86,8 +117,7 @@ export async function login(req: Request, res: Response) {
     res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: SEVEN_DAYS_MS });
     return res.json({ user: publicUser(user), token });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Terjadi kesalahan di server.' });
+    next(error);
   }
 }
 
@@ -98,7 +128,7 @@ export function logout(_req: Request, res: Response) {
 }
 
 // GET /api/auth/me  (lewat authMiddleware, jadi req.user sudah terisi)
-export async function me(req: Request, res: Response) {
+export async function me(req: Request, res: Response, next: NextFunction) {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.id },
@@ -107,7 +137,6 @@ export async function me(req: Request, res: Response) {
     if (!user) return res.status(401).json({ error: 'Akun tidak ditemukan.' });
     return res.json({ user });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Terjadi kesalahan di server.' });
+    next(error);
   }
 }

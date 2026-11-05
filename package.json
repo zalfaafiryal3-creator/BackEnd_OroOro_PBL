@@ -8,9 +8,11 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/backend.test.ts",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "admin:provision": "tsx --tsconfig prisma/tsconfig.json prisma/provisionAdmin.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
@@ -20,6 +22,7 @@
     "dotenv": "^18.0.9",
     "express": "^4.22.3",
     "express-rate-limit": "^8.7.1",
+    "helmet": "8.1.0",
     "jsonwebtoken": "^9.0.3"
   },
   "devDependencies": {
