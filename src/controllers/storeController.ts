@@ -1,13 +1,9 @@
 
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { parseStoreInput, slugify } from '../lib/storeValidation';
-
-const serverError = (res: Response, error: unknown) => {
-  console.error(error);
-  return res.status(500).json({ error: 'Terjadi kesalahan di server.' });
-};
+import { parsePositiveId } from '../lib/validate';
+import { parseStoreInput, slugify, STORE_STATUSES, StoreStatus } from '../lib/storeValidation';
 
 // Bentuk data toko seperti yang keluar dari database
 type StoreRow = {
@@ -77,42 +73,82 @@ const detailInclude = {
   products: { orderBy: { id: 'asc' } },
 } satisfies Prisma.StoreInclude;
 
-const asText = (value: unknown) =>
-  typeof value === 'string' ? value.trim() : '';
-
-const parseId = (value: string): number | null => {
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : null;
+type StoreFilters = {
+  q?: string;
+  category?: string;
+  status?: StoreStatus;
 };
 
-// Menyusun saringan dari ?q=...&category=...
-function buildWhere(
+function parseStoreFilters(
   query: Request['query'],
-  base: Prisma.StoreWhereInput,
-): Prisma.StoreWhereInput {
+  includeStatus: boolean,
+): { filters: StoreFilters; errors: string[] } {
+  const errors: string[] = [];
+  const filters: StoreFilters = {};
+
+  const readText = (key: string, label: string, maxLength: number): string | undefined => {
+    const raw = query[key];
+    if (raw === undefined) return undefined;
+    if (typeof raw !== 'string') {
+      errors.push(`${label} harus berupa teks tunggal.`);
+      return undefined;
+    }
+
+    const value = raw.trim();
+    if (value.length > maxLength) {
+      errors.push(`${label} maksimal ${maxLength} karakter.`);
+      return undefined;
+    }
+    return value;
+  };
+
+  const q = readText('q', 'Pencarian', 100);
+  if (q) filters.q = q;
+
+  const category = readText('category', 'Kategori', 80);
+  if (category) {
+    if (/^\d+$/.test(category) && parsePositiveId(category) === null) {
+      errors.push('ID kategori tidak valid.');
+    } else {
+      filters.category = category;
+    }
+  }
+
+  if (includeStatus) {
+    const status = readText('status', 'Status', 30);
+    if (status) {
+      if (!(STORE_STATUSES as readonly string[]).includes(status)) {
+        errors.push('Status harus buka, tutup, atau menunggu_verifikasi.');
+      } else {
+        filters.status = status as StoreStatus;
+      }
+    }
+  }
+
+  return { filters, errors };
+}
+
+function buildWhere(filters: StoreFilters, base: Prisma.StoreWhereInput): Prisma.StoreWhereInput {
   const where: Prisma.StoreWhereInput = { ...base };
   const and: Prisma.StoreWhereInput[] = [];
 
-  const q = asText(query.q);
-
-  if (q) {
+  if (filters.q) {
     and.push({
       OR: [
-        { name: { contains: q } },
-        { ownerName: { contains: q } },
-        { zone: { contains: q } },
+        { name: { contains: filters.q } },
+        { ownerName: { contains: filters.q } },
+        { zone: { contains: filters.q } },
       ],
     });
   }
 
-  const category = asText(query.category);
-
-  if (category) {
-    and.push(
-      /^\d+$/.test(category)
-        ? { categoryId: Number(category) }
-        : { category: { name: category } },
-    );
+  if (filters.category) {
+    const categoryId = /^\d+$/.test(filters.category)
+      ? parsePositiveId(filters.category)
+      : null;
+    and.push(categoryId !== null
+      ? { categoryId }
+      : { category: { name: filters.category } });
   }
 
   if (and.length > 0) {
@@ -136,9 +172,14 @@ async function uniqueSlug(base: string): Promise<string> {
 
 // GET /api/stores
 // Umum: hanya toko yang sudah terverifikasi
-export async function listStores(req: Request, res: Response) {
+export async function listStores(req: Request, res: Response, next: NextFunction) {
   try {
-    const where = buildWhere(req.query, {
+    const { filters, errors } = parseStoreFilters(req.query, false);
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors[0], errors });
+    }
+
+    const where = buildWhere(filters, {
       status: { in: ['buka', 'tutup'] },
     });
 
@@ -151,27 +192,27 @@ export async function listStores(req: Request, res: Response) {
 
     return res.json(rows.map(toStoreDto));
   } catch (error) {
-    return serverError(res, error);
+    next(error);
   }
 }
 
 // GET /api/stores/manage
 // Admin: semua toko
 // Seller: hanya tokonya sendiri
-export async function listManagedStores(req: Request, res: Response) {
+export async function listManagedStores(req: Request, res: Response, next: NextFunction) {
   try {
     const user = req.user!;
 
     const base: Prisma.StoreWhereInput =
       user.role === 'admin' ? {} : { sellerId: user.id };
 
-    const status = asText(req.query.status);
-
-    if (status) {
-      base.status = status;
+    const { filters, errors } = parseStoreFilters(req.query, true);
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors[0], errors });
     }
+    if (filters.status) base.status = filters.status;
 
-    const where = buildWhere(req.query, base);
+    const where = buildWhere(filters, base);
 
     const rows = await prisma.store.findMany({
       where,
@@ -182,19 +223,27 @@ export async function listManagedStores(req: Request, res: Response) {
 
     return res.json(rows.map(toStoreDto));
   } catch (error) {
-    return serverError(res, error);
+    next(error);
   }
 }
 
 // GET /api/stores/:id
 // ID angka atau slug
-export async function getStore(req: Request, res: Response) {
+export async function getStore(req: Request, res: Response, next: NextFunction) {
   try {
     const key = req.params.id;
 
-    const where = /^\d+$/.test(key)
-      ? { id: Number(key) }
-      : { slug: key };
+    let where: Prisma.StoreWhereInput;
+    if (/^\d+$/.test(key)) {
+      const id = parsePositiveId(key);
+      if (id === null) return res.status(400).json({ error: 'ID toko tidak valid.' });
+      where = { id };
+    } else {
+      if (key.length > 200 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(key)) {
+        return res.status(400).json({ error: 'ID atau slug toko tidak valid.' });
+      }
+      where = { slug: key };
+    }
 
     const store = await prisma.store.findFirst({
       where: {
@@ -212,13 +261,13 @@ export async function getStore(req: Request, res: Response) {
 
     return res.json(toStoreDto(store));
   } catch (error) {
-    return serverError(res, error);
+    next(error);
   }
 }
 
 // POST /api/stores
 // Admin atau Seller
-export async function createStore(req: Request, res: Response) {
+export async function createStore(req: Request, res: Response, next: NextFunction) {
   try {
     const { data, errors } = parseStoreInput(req.body, 'create');
 
@@ -289,16 +338,16 @@ export async function createStore(req: Request, res: Response) {
       });
     }
 
-    return serverError(res, error);
+    next(error);
   }
 }
 
 // PUT /api/stores/:id
 // Admin: semua toko
 // Seller: hanya tokonya sendiri dan tidak boleh mengubah status
-export async function updateStore(req: Request, res: Response) {
+export async function updateStore(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = parseId(req.params.id);
+    const id = parsePositiveId(req.params.id);
 
     if (!id) {
       return res.status(400).json({
@@ -397,16 +446,16 @@ export async function updateStore(req: Request, res: Response) {
       });
     }
 
-    return serverError(res, error);
+    next(error);
   }
 }
 
 // DELETE /api/stores/:id
 // Admin: semua toko
 // Seller: hanya tokonya sendiri
-export async function deleteStore(req: Request, res: Response) {
+export async function deleteStore(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = parseId(req.params.id);
+    const id = parsePositiveId(req.params.id);
 
     if (!id) {
       return res.status(400).json({
@@ -440,6 +489,6 @@ export async function deleteStore(req: Request, res: Response) {
       message: 'Toko dihapus.',
     });
   } catch (error) {
-    return serverError(res, error);
+    next(error);
   }
 }
