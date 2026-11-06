@@ -13,8 +13,8 @@ type StoreRow = {
   ownerName: string;
   zone: string;
   status: string;
-  openTime: string;
-  closeTime: string;
+  openTime: string | null;
+  closeTime: string | null;
   establishedYear: number | null;
   phone: string;
   email: string;
@@ -46,7 +46,9 @@ function toStoreDto(s: StoreRow) {
     status: s.status,
     openTime: s.openTime,
     closeTime: s.closeTime,
-    operatingHours: `${s.openTime} - ${s.closeTime}`,
+    operatingHours: s.openTime !== null && s.closeTime !== null
+      ? `${s.openTime} - ${s.closeTime}`
+      : null,
     establishedYear: s.establishedYear,
     phone: s.phone,
     email: s.email,
@@ -227,6 +229,36 @@ export async function listManagedStores(req: Request, res: Response, next: NextF
   }
 }
 
+// GET /api/stores/manage/:id
+// Admin: semua toko; Seller: hanya tokonya sendiri
+export async function getManagedStore(req: Request, res: Response, next: NextFunction) {
+  try {
+    const id = parsePositiveId(req.params.id);
+    if (id === null) {
+      return res.status(400).json({ error: 'ID toko tidak valid.' });
+    }
+
+    const store = await prisma.store.findUnique({
+      where: { id },
+      include: detailInclude,
+    });
+    if (!store) {
+      return res.status(404).json({ error: 'Toko tidak ditemukan.' });
+    }
+
+    const user = req.user!;
+    if (user.role !== 'admin' && store.sellerId !== user.id) {
+      return res.status(403).json({
+        error: 'Kamu hanya bisa melihat detail tokomu sendiri.',
+      });
+    }
+
+    return res.json(toStoreDto(store));
+  } catch (error) {
+    next(error);
+  }
+}
+
 // GET /api/stores/:id
 // ID angka atau slug
 export async function getStore(req: Request, res: Response, next: NextFunction) {
@@ -311,8 +343,8 @@ export async function createStore(req: Request, res: Response, next: NextFunctio
         categoryId: data.categoryId!,
         zone: data.zone ?? '',
         status,
-        openTime: data.openTime ?? '06:00',
-        closeTime: data.closeTime ?? '17:00',
+        openTime: data.openTime === undefined ? '06:00' : data.openTime,
+        closeTime: data.closeTime === undefined ? '17:00' : data.closeTime,
         establishedYear: data.establishedYear ?? null,
         phone: data.phone ?? '',
         email: data.email ?? '',
