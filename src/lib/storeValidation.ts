@@ -16,8 +16,8 @@ export type StoreInput = {
   categoryId: number;
   zone: string;
   status: StoreStatus;
-  openTime: string;
-  closeTime: string;
+  openTime: string | null;
+  closeTime: string | null;
   establishedYear: number | null;
   phone: string;
   email: string;
@@ -199,12 +199,36 @@ export function parseStoreInput(body: unknown, mode: 'create' | 'update') {
     }
   }
 
-  for (const key of ['openTime', 'closeTime'] as const) {
-    if (!has(key)) continue;
-    const value = readText(input[key], key === 'openTime' ? 'Jam buka' : 'Jam tutup', 5, errors);
-    if (value !== null) {
-      if (!TIME_PATTERN.test(value)) errors.push('Jam harus berformat HH:MM, contoh 06:00.');
-      else data[key] = value;
+  const hasOpenTime = has('openTime');
+  const hasCloseTime = has('closeTime');
+  if (hasOpenTime !== hasCloseTime) {
+    errors.push('Jam buka dan jam tutup harus dikirim bersama.');
+  } else if (hasOpenTime && hasCloseTime) {
+    const readTime = (key: 'openTime' | 'closeTime'): string | null | undefined => {
+      if (input[key] === null) return null;
+      const value = readText(
+        input[key],
+        key === 'openTime' ? 'Jam buka' : 'Jam tutup',
+        5,
+        errors,
+      );
+      if (value === null) return undefined;
+      if (!TIME_PATTERN.test(value)) {
+        errors.push('Jam harus berformat HH:MM, contoh 06:00.');
+        return undefined;
+      }
+      return value;
+    };
+
+    const openTime = readTime('openTime');
+    const closeTime = readTime('closeTime');
+    if (openTime !== undefined && closeTime !== undefined) {
+      if ((openTime === null) !== (closeTime === null)) {
+        errors.push('Jam buka dan jam tutup harus sama-sama null atau sama-sama berformat HH:MM.');
+      } else {
+        data.openTime = openTime;
+        data.closeTime = closeTime;
+      }
     }
   }
 

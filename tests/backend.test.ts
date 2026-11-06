@@ -309,15 +309,37 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
       id: number;
       sellerId: number;
       status: string;
+      openTime: string | null;
+      closeTime: string | null;
       products: Array<{ price: number }>;
     };
     assert.equal(ownStore.sellerId, sellerId);
     assert.equal(ownStore.status, 'menunggu_verifikasi');
     assert.equal(ownStore.products[0].price, 7000);
+    assert.equal(ownStore.openTime, '06:00');
+    assert.equal(ownStore.closeTime, '17:00');
+    const sellerManagedStores = await apiRequest('/api/stores/manage', sellerToken);
+    assert.equal(sellerManagedStores.status, 200);
+    const sellerStoreList = await sellerManagedStores.json() as Array<{ sellerId: number | null }>;
+    assert.ok(sellerStoreList.length > 0);
+    assert.ok(sellerStoreList.every((store) => store.sellerId === sellerId));
 
     await assertErrorResponse(
       await jsonRequest(`/api/stores/${ownStore.id}`, { status: 'tutup' }, sellerToken, 'PUT'),
       403,
+    );
+    const ownManagementDetail = await apiRequest(`/api/stores/manage/${ownStore.id}`, sellerToken);
+    assert.equal(ownManagementDetail.status, 200);
+    const ownDetail = await ownManagementDetail.json() as {
+      openTime: string | null;
+      closeTime: string | null;
+      operatingHours: string | null;
+    };
+    assert.equal(ownDetail.operatingHours, '06:00 - 17:00');
+
+    await assertErrorResponse(
+      await apiRequest(`/api/stores/manage/${ownStore.id}`),
+      401,
     );
     await assertErrorResponse(
       await apiRequest('/api/stores/manage?status=aktif', sellerToken),
@@ -338,6 +360,11 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
     const otherStore = await otherStoreResponse.json() as { id: number };
 
     await assertErrorResponse(
+      await apiRequest(`/api/stores/manage/${otherStore.id}`, sellerToken),
+      403,
+    );
+    assert.equal((await apiRequest(`/api/stores/manage/${otherStore.id}`, adminToken)).status, 200);
+    await assertErrorResponse(
       await jsonRequest(`/api/stores/${otherStore.id}`, { name: 'Diubah Seller' }, sellerToken, 'PUT'),
       403,
     );
@@ -345,6 +372,317 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
       await jsonRequest(`/api/stores/${otherStore.id}`, {}, sellerToken, 'DELETE'),
       403,
     );
+
+    const changedWithoutHoursResponse = await jsonRequest(
+      `/api/stores/${ownStore.id}`,
+      { description: 'Deskripsi diperbarui tanpa mengubah jam.' },
+      sellerToken,
+      'PUT',
+    );
+    assert.equal(changedWithoutHoursResponse.status, 200);
+    const unchangedHours = await changedWithoutHoursResponse.json() as {
+      openTime: string | null;
+      closeTime: string | null;
+      operatingHours: string | null;
+    };
+    assert.equal(unchangedHours.openTime, '06:00');
+    assert.equal(unchangedHours.closeTime, '17:00');
+    assert.equal(unchangedHours.operatingHours, '06:00 - 17:00');
+
+    const clearedHoursResponse = await jsonRequest(
+      `/api/stores/${ownStore.id}`,
+      { openTime: null, closeTime: null },
+      sellerToken,
+      'PUT',
+    );
+    assert.equal(clearedHoursResponse.status, 200);
+    const clearedHours = await clearedHoursResponse.json() as {
+      openTime: string | null;
+      closeTime: string | null;
+      operatingHours: string | null;
+    };
+    assert.equal(clearedHours.openTime, null);
+    assert.equal(clearedHours.closeTime, null);
+    assert.equal(clearedHours.operatingHours, null);
+  });
+
+  it('menerima jam null berpasangan dan menolak jam tidak valid atau tidak berpasangan', async () => {
+    await assertErrorResponse(
+      await jsonRequest('/api/stores', {
+        name: 'Toko Jam Sebagian',
+        categoryId,
+        openTime: null,
+      }, adminToken),
+      400,
+    );
+    await assertErrorResponse(
+      await jsonRequest('/api/stores', {
+        name: 'Toko Jam Tidak Valid',
+        categoryId,
+        openTime: '25:00',
+        closeTime: '17:00',
+      }, adminToken),
+      400,
+    );
+    await assertErrorResponse(
+      await jsonRequest('/api/stores', {
+        name: 'Toko Jam Campur',
+        categoryId,
+        openTime: null,
+        closeTime: '17:00',
+      }, adminToken),
+      400,
+    );
+
+    const response = await jsonRequest('/api/stores', {
+      name: 'Toko Jam Belum Diketahui',
+      categoryId,
+      openTime: null,
+      closeTime: null,
+    }, adminToken);
+    assert.equal(response.status, 201);
+    const store = await response.json() as {
+      openTime: string | null;
+      closeTime: string | null;
+      operatingHours: string | null;
+    };
+    assert.equal(store.openTime, null);
+    assert.equal(store.closeTime, null);
+    assert.equal(store.operatingHours, null);
+  });
+
+  it('mengamankan dry-run dan mengimpor daftar Mobile secara idempoten', async () => {
+    const category = await prisma!.category.create({ data: { name: 'Makanan' } });
+    const exactMatches = Array.from({ length: 8 }, (_, index) => ({
+      sourceMobileId: `mobile-store-${index + 1}`,
+      name: `Toko Mobile ${index + 1}`,
+      category: 'Makanan',
+    }));
+
+    for (const store of exactMatches) {
+      await prisma!.store.create({
+        data: {
+          slug: store.sourceMobileId,
+          name: store.name,
+          categoryId: category.id,
+          status: 'buka',
+        },
+      });
+    }
+
+    await prisma!.store.create({
+      data: {
+        slug: 'fresgreen-organic',
+        name: 'FresGreen Organic',
+        categoryId: category.id,
+        status: 'buka',
+      },
+    });
+    await prisma!.store.create({
+      data: {
+        slug: 'slug-conflict',
+        name: 'Nama di Backend',
+        categoryId: category.id,
+        status: 'buka',
+      },
+    });
+    await prisma!.store.create({
+      data: {
+        slug: 'pemilik-nama',
+        name: 'Nama Duplikat',
+        categoryId: category.id,
+        status: 'buka',
+      },
+    });
+    const protectedStore = await prisma!.store.create({
+      data: {
+        slug: 'lumpur-kentang-27',
+        name: 'Dicuri',
+        ownerName: 'Tidak disentuh',
+        zone: 'Zona lama',
+        categoryId: category.id,
+        openTime: '07:00',
+        closeTime: '16:00',
+        status: 'buka',
+      },
+    });
+
+    const stores = [
+      ...exactMatches,
+      { sourceMobileId: 'lumpur-kentang-27', name: 'Lumpur Kentang 27', category: 'Makanan' },
+      { sourceMobileId: 'fresh-green', name: 'Fresh Green', category: 'Makanan' },
+      { sourceMobileId: 'slug-conflict', name: 'Nama Berbeda', category: 'Makanan' },
+      { sourceMobileId: 'nama-duplikat-baru', name: 'Nama Duplikat', category: 'Makanan' },
+      { sourceMobileId: 'kategori-belum-dikenal', name: 'Toko Kategori Baru', category: 'Kategori Mobile Baru' },
+      { sourceMobileId: '', name: '', category: 'Makanan' },
+      {
+        id: 'toko-mobile-baru-1',
+        name: 'Toko Mobile Baru 1',
+        category: 'Makanan',
+        displayCategory: '',
+        badge: '',
+        rating: '4.8',
+        products: '3 Produk',
+        image: 'gambar-lokal.png',
+      },
+      ...Array.from({ length: 34 }, (_, index) => ({
+        sourceMobileId: `toko-mobile-baru-${index + 2}`,
+        name: `Toko Mobile Baru ${index + 2}`,
+        category: 'Makanan',
+      })),
+    ];
+    assert.equal(stores.length, 49);
+
+    await assertErrorResponse(
+      await jsonRequest('/api/stores/mobile-sync/dry-run', { stores }, undefined),
+      401,
+    );
+    await assertErrorResponse(
+      await jsonRequest('/api/stores/mobile-sync/import', { stores }, undefined),
+      401,
+    );
+    await assertErrorResponse(
+      await jsonRequest('/api/stores/mobile-sync/import', { stores }, sellerToken),
+      403,
+    );
+    await assertErrorResponse(
+      await jsonRequest('/api/stores/mobile-sync/dry-run', { stores }, sellerToken),
+      403,
+    );
+    const duplicateSourceResponse = await jsonRequest(
+      '/api/stores/mobile-sync/dry-run',
+      {
+        stores: [
+          { sourceMobileId: 'sumber-ganda', name: 'Toko Pertama', category: 'Makanan' },
+          { sourceMobileId: 'sumber-ganda', name: 'Toko Kedua', category: 'Makanan' },
+        ],
+      },
+      adminToken,
+    );
+    assert.equal(duplicateSourceResponse.status, 200);
+    const duplicateSourceResult = await duplicateSourceResponse.json() as {
+      results: Array<{ status: string }>;
+    };
+    assert.deepEqual(duplicateSourceResult.results.map((result) => result.status), ['create', 'conflict']);
+
+    const beforeDryRun = await prisma!.store.findMany({
+      include: { products: true },
+      orderBy: { id: 'asc' },
+    });
+    const dryRunResponse = await jsonRequest(
+      '/api/stores/mobile-sync/dry-run',
+      { stores },
+      adminToken,
+    );
+    assert.equal(dryRunResponse.status, 200);
+    const dryRun = await dryRunResponse.json() as {
+      results: Array<{ sourceMobileId: string | null; status: string; reason?: string }>;
+      summary: { create: number; already_present: number; conflict: number; invalid: number };
+    };
+    assert.equal(dryRun.results.length, 49);
+    assert.deepEqual(dryRun.summary, {
+      create: 35,
+      already_present: 8,
+      conflict: 5,
+      invalid: 1,
+    });
+    assert.equal(
+      dryRun.results.find((result) => result.sourceMobileId === 'lumpur-kentang-27')?.status,
+      'conflict',
+    );
+    assert.equal(
+      dryRun.results.find((result) => result.sourceMobileId === 'fresh-green')?.status,
+      'conflict',
+    );
+    assert.match(
+      dryRun.results.find((result) => result.sourceMobileId === 'fresh-green')?.reason ?? '',
+      /FresGreen Organic/,
+    );
+    assert.equal(
+      dryRun.results.find((result) => result.sourceMobileId === 'kategori-belum-dikenal')?.status,
+      'conflict',
+    );
+    assert.equal(
+      dryRun.results.find((result) => result.sourceMobileId === 'slug-conflict')?.status,
+      'conflict',
+    );
+    assert.equal(dryRun.results.find((result) => result.status === 'invalid')?.status, 'invalid');
+    const afterDryRun = await prisma!.store.findMany({
+      include: { products: true },
+      orderBy: { id: 'asc' },
+    });
+    assert.deepEqual(afterDryRun, beforeDryRun);
+
+    const importResponse = await jsonRequest(
+      '/api/stores/mobile-sync/import',
+      { stores },
+      adminToken,
+    );
+    assert.equal(importResponse.status, 200);
+    const imported = await importResponse.json() as {
+      results: Array<{ status: string; created?: boolean }>;
+      summary: { create: number; already_present: number; conflict: number; invalid: number };
+    };
+    assert.equal(imported.results.length, 49);
+    assert.deepEqual(imported.summary, {
+      create: 35,
+      already_present: 8,
+      conflict: 5,
+      invalid: 1,
+    });
+    assert.equal(imported.results.filter((result) => result.created === true).length, 35);
+
+    const importedStores = await prisma!.store.findMany({
+      where: { sourceMobileId: { startsWith: 'toko-mobile-baru-' } },
+      include: { products: true },
+    });
+    assert.equal(importedStores.length, 35);
+    for (const store of importedStores) {
+      assert.equal(store.status, 'menunggu_verifikasi');
+      assert.equal(store.openTime, null);
+      assert.equal(store.closeTime, null);
+      assert.equal(store.ownerName, '');
+      assert.equal(store.zone, '');
+      assert.equal(store.sellerId, null);
+      assert.equal(store.products.length, 0);
+    }
+
+    const countAfterImport = await prisma!.store.count();
+    const unchangedProtectedStore = await prisma!.store.findUnique({
+      where: { id: protectedStore.id },
+    });
+    assert.equal(unchangedProtectedStore?.name, 'Dicuri');
+    assert.equal(unchangedProtectedStore?.ownerName, 'Tidak disentuh');
+    assert.equal(unchangedProtectedStore?.zone, 'Zona lama');
+    assert.equal(unchangedProtectedStore?.openTime, '07:00');
+    assert.equal(unchangedProtectedStore?.closeTime, '16:00');
+    const retryResponse = await jsonRequest(
+      '/api/stores/mobile-sync/import',
+      { stores },
+      adminToken,
+    );
+    assert.equal(retryResponse.status, 200);
+    const retry = await retryResponse.json() as {
+      results: Array<{ status: string }>;
+      summary: { create: number; already_present: number; conflict: number; invalid: number };
+    };
+    assert.equal(retry.results.length, 49);
+    assert.deepEqual(retry.summary, {
+      create: 0,
+      already_present: 43,
+      conflict: 5,
+      invalid: 1,
+    });
+    assert.equal(await prisma!.store.count(), countAfterImport);
+
+    const adminManagedStores = await apiRequest('/api/stores/manage', adminToken);
+    assert.equal(adminManagedStores.status, 200);
+    const adminList = await adminManagedStores.json() as Array<{ slug: string }>;
+    assert.ok(adminList.some((store) => store.slug === 'toko-mobile-baru-1'));
+    const sellerStoreListResponse = await apiRequest('/api/stores/manage', sellerToken);
+    assert.equal(sellerStoreListResponse.status, 200);
+    const postImportSellerList = await sellerStoreListResponse.json() as Array<{ sellerId: number | null }>;
+    assert.ok(postImportSellerList.every((store) => store.sellerId === sellerId));
   });
 
   it('menolak rating tidak bulat dan menerima review valid', async () => {

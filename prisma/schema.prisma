@@ -44,8 +44,9 @@ model Store {
   category        Category  @relation(fields: [categoryId], references: [id])
   zone            String    @default("")
   status          String    @default("menunggu_verifikasi") // buka, tutup, menunggu_verifikasi
-  openTime        String    @default("06:00")
-  closeTime       String    @default("17:00")
+  openTime        String?   @default("06:00")
+  closeTime       String?   @default("17:00")
+  sourceMobileId  String?   @unique
   establishedYear Int?
   phone           String    @default("")
   email           String    @default("")
