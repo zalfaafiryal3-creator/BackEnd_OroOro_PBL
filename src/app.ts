@@ -6,6 +6,7 @@ import authRoutes from './routes/authRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import storeRoutes from './routes/storeRoutes';
 import { marketReviewRoutes, storeReviewRoutes } from './routes/reviewRoutes';
+import cloudinaryRoutes from './routes/cloudinaryRoutes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 
@@ -46,6 +47,7 @@ app.use('/api/store-reviews', storeReviewRoutes);
 app.use('/api/market-reviews', marketReviewRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/stores', storeRoutes);
+app.use('/api/cloudinary', cloudinaryRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

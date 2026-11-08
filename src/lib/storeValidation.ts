@@ -32,12 +32,23 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const PHONE_PATTERN = /^[0-9+\-() ]{6,30}$/;
 const MAX_DATABASE_INTEGER = 2_147_483_647;
 
+// Cloudinary reference validation
+// Expected format: cloudinary:stores/{storeId}/{uuid} or cloudinary:logos/{storeId}/{uuid}
+// storeId must be a positive integer, uuid follows RFC‑4122 format
+const CLOUDINARY_REGEX = /^cloudinary:(stores|logos)\/(\d+)\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$/;
+function isValidCloudinaryReference(text: string): boolean {
+  const match = CLOUDINARY_REGEX.exec(text);
+  if (!match) return false;
+  const storeId = Number(match[2]);
+  return Number.isInteger(storeId) && storeId > 0;
+}
+
 export function slugify(name: string): string {
   const slug = name
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/&/g, ' dan ')
+    .replace(/\u0026/g, ' dan ')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return slug || 'toko';
@@ -83,6 +94,12 @@ function parseUrl(value: unknown, label: string, errors: string[]): string | nul
     errors.push(`${label} tidak valid.`);
     return null;
   }
+
+  // Cloudinary reference support
+  if (isValidCloudinaryReference(text)) {
+    return text;
+  }
+
   if (text.startsWith('/')) {
     if (text.startsWith('//')) {
       errors.push(`${label} tidak boleh berupa alamat relatif lintas domain.`);
@@ -105,7 +122,7 @@ function parseUrl(value: unknown, label: string, errors: string[]): string | nul
     // URL yang tidak dapat dibaca akan ditolak.
   }
 
-  errors.push(`${label} harus berupa URL HTTP/HTTPS atau alamat lokal.`);
+  errors.push(`${label} harus berupa URL HTTP/HTTPS, alamat lokal, atau referensi Cloudinary yang valid.`);
   return null;
 }
 
