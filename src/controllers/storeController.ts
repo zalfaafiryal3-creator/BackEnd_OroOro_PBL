@@ -4,6 +4,19 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { parsePositiveId } from '../lib/validate';
 import { parseStoreInput, slugify, STORE_STATUSES, StoreStatus } from '../lib/storeValidation';
+import { buildSecureUrl } from '../services/cloudinaryService';
+
+const CLOUDINARY_PREFIX = 'cloudinary:';
+
+/** Resolve an image reference stored in the database to a URL for the client. */
+function resolveImageUrl(value: string | null): string | null {
+  if (value === null) return null;
+  if (value.startsWith(CLOUDINARY_PREFIX)) {
+    const publicId = value.slice(CLOUDINARY_PREFIX.length);
+    return buildSecureUrl(publicId);
+  }
+  return value;
+}
 
 // Bentuk data toko seperti yang keluar dari database
 type StoreRow = {
@@ -53,8 +66,8 @@ function toStoreDto(s: StoreRow) {
     phone: s.phone,
     email: s.email,
     description: s.description,
-    bannerUrl: s.bannerUrl,
-    logoUrl: s.logoUrl,
+    bannerUrl: resolveImageUrl(s.bannerUrl),
+    logoUrl: resolveImageUrl(s.logoUrl),
     sellerId: s.sellerId,
     rating: 0,
     reviewCount: 0,
