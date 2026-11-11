@@ -6,10 +6,14 @@ import authRoutes from './routes/authRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import storeRoutes from './routes/storeRoutes';
 import { marketReviewRoutes, storeReviewRoutes } from './routes/reviewRoutes';
+<<<<<<< Updated upstream
 import cloudinaryRoutes from './routes/cloudinaryRoutes';
 import uploadRoutes from './routes/uploadRoutes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
+=======
+import visitPlannerRoutes from './routes/visitPlannerRoutes';
+>>>>>>> Stashed changes
 
 
 export const app = express();
@@ -48,8 +52,12 @@ app.use('/api/store-reviews', storeReviewRoutes);
 app.use('/api/market-reviews', marketReviewRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/stores', storeRoutes);
+<<<<<<< Updated upstream
 app.use('/api/cloudinary', cloudinaryRoutes);
 app.use('/api/upload', uploadRoutes);
+=======
+app.use('/api/visit-planner', visitPlannerRoutes);
+>>>>>>> Stashed changes
 
 app.use(notFoundHandler);
 app.use(errorHandler);
