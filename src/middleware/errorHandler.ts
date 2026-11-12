@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { isRecord } from '../lib/validate';
 import { logError } from '../lib/logger';
+import { apiError } from '../lib/apiResponse';
 
 function logServerError(err: unknown, req: Request, statusCode: number): void {
   const routePath = req.route?.path;
@@ -29,7 +30,7 @@ function logServerError(err: unknown, req: Request, statusCode: number): void {
 }
 
 export const notFoundHandler = (_req: Request, res: Response): void => {
-  res.status(404).json({ error: 'Endpoint tidak ditemukan.' });
+  res.status(404).json(apiError('Endpoint tidak ditemukan.'));
 };
 
 export const errorHandler = (
@@ -45,37 +46,37 @@ export const errorHandler = (
   }
 
   if (isRecord(err) && err.type === 'entity.parse.failed') {
-    res.status(400).json({ error: 'Format JSON tidak valid.' });
+    res.status(400).json(apiError('Format JSON tidak valid.'));
     return;
   }
 
   if (isRecord(err) && err.type === 'entity.too.large') {
-    res.status(413).json({ error: 'Data yang dikirim terlalu besar.' });
+    res.status(413).json(apiError('Data yang dikirim terlalu besar.'));
     return;
   }
 
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === 'P2002') {
-      res.status(409).json({ error: 'Data sudah terdaftar.' });
+      res.status(409).json(apiError('Data sudah terdaftar.'));
       return;
     }
 
     if (err.code === 'P2003') {
-      res.status(400).json({ error: 'Data terkait tidak valid.' });
+      res.status(400).json(apiError('Data terkait tidak valid.'));
       return;
     }
 
     if (err.code === 'P2025') {
-      res.status(404).json({ error: 'Data tidak ditemukan.' });
+      res.status(404).json(apiError('Data tidak ditemukan.'));
       return;
     }
 
     if (['P2000', 'P2006', 'P2007', 'P2011', 'P2012'].includes(err.code)) {
-      res.status(400).json({ error: 'Data yang dikirim tidak valid.' });
+      res.status(400).json(apiError('Data yang dikirim tidak valid.'));
       return;
     }
   }
 
   logServerError(err, _req, 500);
-  res.status(500).json({ error: 'Terjadi kesalahan di server.' });
+  res.status(500).json(apiError('Terjadi kesalahan di server.'));
 };

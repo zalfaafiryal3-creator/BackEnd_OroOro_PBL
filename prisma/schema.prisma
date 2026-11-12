@@ -15,6 +15,7 @@ model User {
   role         String   @default("seller") // "admin" atau "seller"
   createdAt    DateTime @default(now())
   stores       Store[]
+  bookmarks    Bookmark[]
 }
 
 model Review {
@@ -92,4 +93,17 @@ model Product {
   price       Int     @default(0)
   description String  @default("")
   photoUrl    String?
+  bookmarks   Bookmark[]
+}
+
+model Bookmark {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  productId Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([productId])
 }

@@ -968,6 +968,295 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
     assert.ok(savedReview);
   });
 
+  it('menyediakan rekomendasi database dan bookmark yang terikat pengguna', async () => {
+    const targetNames = [
+      'Bakso Goreng Bagoplek',
+      'Lumpur Kentang 27',
+      'Sego Liwet Bakar Kemangi',
+      'Klepon-ku',
+    ];
+    const stores = [];
+    const products = [];
+
+    for (const [index, name] of targetNames.entries()) {
+      const store = await prisma!.store.create({
+        data: {
+          slug: `rekomendasi-${index + 1}`,
+          name,
+          categoryId,
+          zone: `Blok ${String.fromCharCode(65 + index)}`,
+          status: 'buka',
+          bannerUrl: `https://example.test/store-${index + 1}.jpg`,
+        },
+      });
+      stores.push(store);
+      products.push(await prisma!.product.create({
+        data: {
+          storeId: store.id,
+          name: `Produk ${index + 1}`,
+          description: `Deskripsi produk ${index + 1}`,
+          price: [2_147_483_647, 10000, 0, 8000][index],
+          photoUrl: `https://example.test/product-${index + 1}.jpg`,
+        },
+      }));
+    }
+
+    const createStoreReview = (storeId: number, rating: number) =>
+      prisma!.review.create({
+        data: {
+          type: 'store',
+          storeId,
+          name: 'Pengunjung Uji',
+          date: 'Hari ini',
+          text: 'Ulasan untuk rekomendasi.',
+          rating,
+        },
+      });
+    await Promise.all([
+      createStoreReview(stores[0].id, 5),
+      createStoreReview(stores[1].id, 4),
+      createStoreReview(stores[1].id, 4),
+      createStoreReview(stores[1].id, 5),
+      createStoreReview(stores[2].id, 4),
+      createStoreReview(stores[2].id, 4),
+    ]);
+
+    const recommendedStoresResponse = await apiRequest(
+      '/api/recommendations/stores',
+    );
+    assert.equal(recommendedStoresResponse.status, 200);
+    const recommendedStores = await recommendedStoresResponse.json() as {
+      success: boolean;
+      data: Array<{
+        id: number;
+        name: string;
+        category: string;
+        location: string;
+        status: string;
+        rating: number;
+        reviewCount: number;
+      }>;
+    };
+    assert.equal(recommendedStores.success, true);
+    assert.deepEqual(
+      recommendedStores.data.map((store) => store.name),
+      targetNames,
+    );
+    assert.deepEqual(
+      recommendedStores.data.map((store) => store.id),
+      stores.map((store) => store.id),
+    );
+    assert.equal(recommendedStores.data[0].rating, 5);
+    assert.equal(recommendedStores.data[0].reviewCount, 1);
+    assert.equal(recommendedStores.data[1].reviewCount, 3);
+    assert.deepEqual(recommendedStores.data.map((store) => store.status), [
+      'buka',
+      'buka',
+      'buka',
+      'buka',
+    ]);
+
+    const storeListResponse = await apiRequest('/api/stores');
+    const storeList = await storeListResponse.json() as Array<{
+      id: number;
+      rating: number;
+      reviewCount: number;
+    }>;
+    const catalogStore = storeList.find((store) => store.id === stores[0].id);
+    assert.equal(catalogStore?.rating, 5);
+    assert.equal(catalogStore?.reviewCount, 1);
+
+    const recommendationsResponse = await apiRequest(
+      '/api/recommendations/products',
+    );
+    assert.equal(recommendationsResponse.status, 200);
+    const recommendations = await recommendationsResponse.json() as {
+      success: boolean;
+      data: {
+        recommendations: Array<{
+          id: number;
+          storeId: number;
+          name: string;
+          photoUrl: string;
+          price: number;
+          rating: number | null;
+          reviewCount: number;
+          recommendationLabel: string;
+        }>;
+      };
+    };
+    assert.equal(recommendations.success, true);
+    assert.deepEqual(
+      recommendations.data.recommendations.map((item) => item.id),
+      products.slice(0, 3).map((product) => product.id),
+    );
+    assert.deepEqual(
+      recommendations.data.recommendations.map((item) => item.recommendationLabel),
+      ['WAJIB COBA', 'PRODUK LOKAL FAVORIT', 'PILIHAN PENGUNJUNG'],
+    );
+    assert.equal(recommendations.data.recommendations[0].rating, null);
+    assert.equal(recommendations.data.recommendations[0].reviewCount, 0);
+
+    const expectedSortFirstProduct: Record<string, number> = {
+      best_selling: products[1].id,
+      highest_rating: products[0].id,
+      newest: products[3].id,
+      lowest_price: products[2].id,
+      highest_price: products[0].id,
+    };
+    const publicCatalogProductIds = (await prisma!.product.findMany({
+      where: { store: { status: { in: ['buka', 'tutup'] } } },
+      select: { id: true },
+    })).map((product) => product.id).sort((a, b) => a - b);
+    for (const [sort, expectedId] of Object.entries(expectedSortFirstProduct)) {
+      const response = await apiRequest(
+        `/api/recommendations/featured-products?sort=${sort}`,
+      );
+      assert.equal(response.status, 200);
+      const body = await response.json() as {
+        success: boolean;
+        data: {
+          sort: string;
+          products: Array<{
+            id: number;
+            storeId: number;
+            salesCount: number | null;
+            availabilityStatus: string;
+          }>;
+        };
+      };
+      assert.equal(body.success, true);
+      assert.equal(body.data.sort, sort);
+      assert.equal(body.data.products[0].id, expectedId);
+      assert.ok(body.data.products.every((product) =>
+        stores.some((store) => store.id === product.storeId),
+      ));
+      assert.deepEqual(
+        body.data.products.map((product) => product.id).sort((a, b) => a - b),
+        publicCatalogProductIds,
+      );
+      assert.equal(body.data.products[0].salesCount, null);
+      assert.equal(body.data.products[0].availabilityStatus, 'catalog_listed');
+    }
+    const invalidSort = await apiRequest(
+      '/api/recommendations/featured-products?sort=popular',
+    );
+    assert.equal(invalidSort.status, 400);
+    assert.equal(
+      (await invalidSort.json() as { success: boolean }).success,
+      false,
+    );
+
+    const unauthenticatedBookmarks = await apiRequest('/api/bookmarks');
+    assert.equal(unauthenticatedBookmarks.status, 401);
+    assert.deepEqual(await unauthenticatedBookmarks.json(), {
+      success: false,
+      message: 'Silakan login terlebih dahulu.',
+      data: null,
+      error: 'Silakan login terlebih dahulu.',
+    });
+    const addBookmark = await jsonRequest(
+      '/api/bookmarks',
+      { productId: products[0].id },
+      sellerToken,
+    );
+    assert.equal(addBookmark.status, 200);
+    const firstBookmark = await addBookmark.json() as {
+      data: { id: number; product: { id: number } };
+    };
+    assert.equal(firstBookmark.data.product.id, products[0].id);
+    const duplicateBookmark = await jsonRequest(
+      '/api/bookmarks',
+      { productId: products[0].id },
+      sellerToken,
+    );
+    assert.equal(duplicateBookmark.status, 200);
+    const duplicateBody = await duplicateBookmark.json() as {
+      data: { id: number };
+    };
+    assert.equal(duplicateBody.data.id, firstBookmark.data.id);
+
+    const bookmarkList = await apiRequest('/api/bookmarks', sellerToken);
+    const bookmarkBody = await bookmarkList.json() as {
+      data: Array<{ product: { id: number } }>;
+    };
+    assert.equal(bookmarkBody.data.length, 1);
+    assert.equal(bookmarkBody.data[0].product.id, products[0].id);
+    const otherSellerTokenForBookmarks = sign(
+      { id: otherSellerId, role: 'seller' },
+      'test-secret-not-for-production',
+      { algorithm: 'HS256' },
+    );
+    const otherUserBookmarks = await apiRequest(
+      '/api/bookmarks',
+      otherSellerTokenForBookmarks,
+    );
+    assert.equal(otherUserBookmarks.status, 200);
+    assert.deepEqual(await otherUserBookmarks.json(), {
+      success: true,
+      message: 'Belum ada produk yang dibookmark.',
+      data: [],
+    });
+
+    const status = await apiRequest(
+      `/api/bookmarks/${products[0].id}/status`,
+      sellerToken,
+    );
+    assert.equal(
+      ((await status.json()) as { data: { isBookmarked: boolean } }).data.isBookmarked,
+      true,
+    );
+    const otherUserDelete = await jsonRequest(
+      `/api/bookmarks/${products[0].id}`,
+      {},
+      otherSellerTokenForBookmarks,
+      'DELETE',
+    );
+    assert.equal(
+      ((await otherUserDelete.json()) as { data: { removed: boolean } }).data.removed,
+      false,
+    );
+    const removeBookmark = await jsonRequest(
+      `/api/bookmarks/${products[0].id}`,
+      {},
+      sellerToken,
+      'DELETE',
+    );
+    assert.equal(
+      ((await removeBookmark.json()) as { data: { removed: boolean } }).data.removed,
+      true,
+    );
+
+    await prisma!.store.update({
+      where: { id: stores[3].id },
+      data: { status: 'menunggu_verifikasi' },
+    });
+    const hiddenProductBookmark = await jsonRequest(
+      '/api/bookmarks',
+      { productId: products[3].id },
+      sellerToken,
+    );
+    assert.equal(hiddenProductBookmark.status, 404);
+    const hiddenProductStatus = await apiRequest(
+      `/api/bookmarks/${products[3].id}/status`,
+      sellerToken,
+    );
+    const hiddenProductStatusBody = await hiddenProductStatus.json() as {
+      data: { isAvailable: boolean };
+    };
+    assert.equal(hiddenProductStatusBody.data.isAvailable, false);
+    const incompleteStoresResponse = await apiRequest(
+      '/api/recommendations/stores',
+    );
+    assert.equal(incompleteStoresResponse.status, 409);
+    const incompleteStores = await incompleteStoresResponse.json() as {
+      success: boolean;
+      data: { missingStores: string[] };
+    };
+    assert.equal(incompleteStores.success, false);
+    assert.deepEqual(incompleteStores.data.missingStores, ['Klepon-ku']);
+  });
+
   it('menangani 400, 413, 404, dan error 500 tanpa detail internal', async () => {
     const malformedJson = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
@@ -1010,7 +1299,12 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
 
       errorHandler(new Error('password=private token=private'), request, response, next);
       assert.equal(statusCode, 500);
-      assert.deepEqual(body, { error: 'Terjadi kesalahan di server.' });
+      assert.deepEqual(body, {
+        success: false,
+        message: 'Terjadi kesalahan di server.',
+        data: null,
+        error: 'Terjadi kesalahan di server.',
+      });
       assert.equal(logLines.length, 1);
       assert.ok(!logLines[0].includes('private'));
 

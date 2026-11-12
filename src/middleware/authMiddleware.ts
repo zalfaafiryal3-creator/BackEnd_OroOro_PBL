@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { JwtPayload, verify } from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
+import { apiError } from '../lib/apiResponse';
 
 type UserRole = 'admin' | 'seller';
 
@@ -34,7 +35,7 @@ export async function authMiddleware(
   const token: string | undefined = req.cookies?.token ?? bearer;
 
   if (!token) {
-    res.status(401).json({ error: 'Silakan login terlebih dahulu.' });
+    res.status(401).json(apiError('Silakan login terlebih dahulu.'));
     return;
   }
 
@@ -48,12 +49,16 @@ export async function authMiddleware(
   try {
     claims = readClaims(verify(token, secret, { algorithms: ['HS256'] }));
   } catch {
-    res.status(401).json({ error: 'Sesi tidak valid atau sudah habis. Silakan login ulang.' });
+    res.status(401).json(
+      apiError('Sesi tidak valid atau sudah habis. Silakan login ulang.'),
+    );
     return;
   }
 
   if (!claims) {
-    res.status(401).json({ error: 'Sesi tidak valid atau sudah habis. Silakan login ulang.' });
+    res.status(401).json(
+      apiError('Sesi tidak valid atau sudah habis. Silakan login ulang.'),
+    );
     return;
   }
 
@@ -64,7 +69,9 @@ export async function authMiddleware(
     });
 
     if (!user || user.role !== claims.role) {
-      res.status(401).json({ error: 'Sesi tidak valid atau sudah habis. Silakan login ulang.' });
+      res.status(401).json(
+        apiError('Sesi tidak valid atau sudah habis. Silakan login ulang.'),
+      );
       return;
     }
 

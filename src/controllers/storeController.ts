@@ -4,19 +4,11 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { parsePositiveId } from '../lib/validate';
 import { parseStoreInput, slugify, STORE_STATUSES, StoreStatus } from '../lib/storeValidation';
-import { buildSecureUrl } from '../services/cloudinaryService';
-
-const CLOUDINARY_PREFIX = 'cloudinary:';
-
-/** Resolve an image reference stored in the database to a URL for the client. */
-function resolveImageUrl(value: string | null): string | null {
-  if (value === null) return null;
-  if (value.startsWith(CLOUDINARY_PREFIX)) {
-    const publicId = value.slice(CLOUDINARY_PREFIX.length);
-    return buildSecureUrl(publicId);
-  }
-  return value;
-}
+import { resolveStoreImageUrl } from '../services/storeImageUrl';
+import {
+  getStoreReviewMetrics,
+  StoreReviewMetric,
+} from '../services/storeReviewMetrics';
 
 // Bentuk data toko seperti yang keluar dari database
 type StoreRow = {
@@ -47,7 +39,7 @@ type StoreRow = {
 };
 
 // Bentuk data toko yang dikirim ke admin dan mobile
-function toStoreDto(s: StoreRow) {
+function toStoreDto(s: StoreRow, reviewMetric?: StoreReviewMetric) {
   return {
     id: s.id,
     slug: s.slug,
@@ -66,16 +58,26 @@ function toStoreDto(s: StoreRow) {
     phone: s.phone,
     email: s.email,
     description: s.description,
-    bannerUrl: resolveImageUrl(s.bannerUrl),
-    logoUrl: resolveImageUrl(s.logoUrl),
+    bannerUrl: resolveStoreImageUrl(s.bannerUrl),
+    logoUrl: resolveStoreImageUrl(s.logoUrl),
     sellerId: s.sellerId,
-    rating: 0,
-    reviewCount: s._count?.reviews ?? 0,
+    rating: reviewMetric?.rating ?? 0,
+    reviewCount: reviewMetric?.reviewCount ?? s._count?.reviews ?? 0,
     productCount: s.products
       ? s.products.length
       : s._count?.products ?? 0,
     ...(s.products ? { products: s.products } : {}),
   };
+}
+
+async function toStoreDtos(stores: StoreRow[]) {
+  const metrics = await getStoreReviewMetrics(stores.map((store) => store.id));
+  return stores.map((store) => toStoreDto(store, metrics.get(store.id)));
+}
+
+async function toStoreDtoWithMetrics(store: StoreRow) {
+  const metrics = await getStoreReviewMetrics([store.id]);
+  return toStoreDto(store, metrics.get(store.id));
 }
 
 const listInclude = {
@@ -229,7 +231,7 @@ export async function listStores(req: Request, res: Response, next: NextFunction
       take: 200,
     });
 
-    return res.json(rows.map(toStoreDto));
+    return res.json(await toStoreDtos(rows));
   } catch (error) {
     next(error);
   }
@@ -260,7 +262,7 @@ export async function listManagedStores(req: Request, res: Response, next: NextF
       take: 200,
     });
 
-    return res.json(rows.map(toStoreDto));
+    return res.json(await toStoreDtos(rows));
   } catch (error) {
     next(error);
   }
@@ -290,7 +292,7 @@ export async function getManagedStore(req: Request, res: Response, next: NextFun
       });
     }
 
-    return res.json(toStoreDto(store));
+    return res.json(await toStoreDtoWithMetrics(store));
   } catch (error) {
     next(error);
   }
@@ -328,7 +330,7 @@ export async function getStore(req: Request, res: Response, next: NextFunction) 
       });
     }
 
-    return res.json(toStoreDto(store));
+    return res.json(await toStoreDtoWithMetrics(store));
   } catch (error) {
     next(error);
   }
@@ -396,7 +398,7 @@ export async function createStore(req: Request, res: Response, next: NextFunctio
       include: detailInclude,
     });
 
-    return res.status(201).json(toStoreDto(store));
+    return res.status(201).json(await toStoreDtoWithMetrics(store));
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -504,7 +506,7 @@ export async function updateStore(req: Request, res: Response, next: NextFunctio
       include: detailInclude,
     });
 
-    return res.json(toStoreDto(store));
+    return res.json(await toStoreDtoWithMetrics(store));
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&

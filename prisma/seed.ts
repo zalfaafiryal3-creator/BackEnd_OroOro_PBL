@@ -141,7 +141,7 @@ const stores: SeedStore[] = [
   },
   {
     slug: 'bagoplek-bakso-goreng',
-    name: 'Bagoplek Bakso Goreng',
+    name: 'Bakso Goreng Bagoplek',
     category: 'Makanan',
     description: 'Bakso goreng mekar beraneka bumbu tabur dan cocolan sambal.',
     products: [
@@ -164,7 +164,7 @@ const stores: SeedStore[] = [
   },
   {
     slug: 'sego-liwet-kemangi',
-    name: 'Sego liwet Bakar Kemangi',
+    name: 'Sego Liwet Bakar Kemangi',
     category: 'Kuliner Legendaris',
     description: 'Nasi liwet bakar legendaris dibungkus daun pisang dengan rempah harum kemangi.',
     products: [
