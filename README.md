@@ -14,6 +14,13 @@
 | POST | /api/store-reviews  | Kirim ulasan toko {name, date, text, rating} |
 | GET  | /api/market-reviews | Ambil ulasan pasar |
 | POST | /api/market-reviews | Kirim ulasan pasar |
+| GET  | /api/market-reviews/page?page=1&limit=10 | Ambil ulasan pasar per halaman (maksimal 10), dengan filter dan pencarian opsional |
+| GET  | /api/market-reviews/statistics | Statistik semua ulasan pasar publik |
+| GET  | /api/markets/:id/reviews | Ambil ulasan pasar per pasar, dengan filter `?filter=all|photo|5|4|1-3` atau `?search=` |
+| GET  | /api/markets/:id/reviews/statistics | Statistik ulasan pasar: `total_reviews`, `with_photo`, `star_5`, `star_4`, `star_1_3` |
+| GET  | /api/stores/:id/reviews | Ambil ulasan per toko, dengan filter `?filter=all|photo|5|4|1-3`, pencarian, dan pagination |
+| GET  | /api/stores/:id/reviews/statistics | Statistik ulasan toko: `total_reviews`, `with_photo`, `star_5`, `star_4`, `star_1_3` |
+| POST | /api/stores/:id/reviews | Kirim ulasan untuk toko tertentu |
 
 ## Keamanan dan pengujian
 Panduan security, validasi form, error handling, logging, contoh respons, dan checklist PBL ada di [SECURITY-VALIDATION.md](./SECURITY-VALIDATION.md).

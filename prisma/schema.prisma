@@ -18,15 +18,37 @@ model User {
 }
 
 model Review {
-  id        Int      @id @default(autoincrement())
-  type      String // "store" (ulasan toko) atau "market" (ulasan pasar)
-  name      String   @default("Anonim")
-  date      String   @default("")
-  text      String
-  rating    Int      @default(5)
-  createdAt DateTime @default(now())
+  id            Int          @id @default(autoincrement())
+  type          String       // "store" (ulasan toko) atau "market" (ulasan pasar)
+  marketId      Int?         @map("market_id")
+  name          String       @default("Anonim")
+  date          String       @default("")
+  text          String
+  rating        Int          @default(5)
+  overallRating Int?         @map("overall_rating")
+  storeId       Int?         @map("store_id")
+  store         Store?       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  isPublic      Boolean      @default(true) @map("is_public")
+  isDeleted     Boolean      @default(false) @map("is_deleted")
+  createdAt     DateTime     @default(now())
+  photos        ReviewPhoto[]
 
   @@index([type])
+  @@index([marketId])
+  @@index([storeId, type, isPublic, isDeleted])
+  @@index([isPublic, isDeleted])
+}
+
+model ReviewPhoto {
+  id        Int      @id @default(autoincrement())
+  reviewId   Int      @map("review_id")
+  review     Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  url       String
+  isPublic  Boolean  @default(true) @map("is_public")
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
+  @@index([isPublic])
 }
 
 model Category {
@@ -56,6 +78,7 @@ model Store {
   sellerId        Int?
   seller          User?     @relation(fields: [sellerId], references: [id])
   products        Product[]
+  reviews         Review[]
   createdAt       DateTime  @default(now())
 
   @@index([categoryId])

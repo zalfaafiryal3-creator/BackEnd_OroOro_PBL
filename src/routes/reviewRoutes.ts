@@ -1,5 +1,13 @@
 import { Router } from 'express';
-import { createReview, listReviews, ReviewType } from '../controllers/reviewController';
+import {
+  getAllMarketReviewStatistics,
+  createReview,
+  getPaginatedMarketReviews,
+  getMarketReviewStatistics,
+  getMarketReviews,
+  listReviews,
+  ReviewType,
+} from '../controllers/reviewController';
 import { reviewLimiter } from '../middleware/rateLimiter';
 
 function buildReviewRouter(type: ReviewType) {
@@ -11,3 +19,9 @@ function buildReviewRouter(type: ReviewType) {
 
 export const storeReviewRoutes = buildReviewRouter('store');
 export const marketReviewRoutes = buildReviewRouter('market');
+marketReviewRoutes.get('/page', getPaginatedMarketReviews());
+marketReviewRoutes.get('/statistics', getAllMarketReviewStatistics());
+
+export const marketReviewListRouter = Router();
+marketReviewListRouter.get('/:id/reviews', getMarketReviews());
+marketReviewListRouter.get('/:id/reviews/statistics', getMarketReviewStatistics());

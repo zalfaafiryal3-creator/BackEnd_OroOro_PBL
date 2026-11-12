@@ -68,8 +68,9 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     if (errors.length > 0) return res.status(400).json({ error: errors[0], errors });
 
     const passwordHash = await hash(passwordValue, 10);
-    const role = body.role === 'admin' ? 'admin' : 'seller';
-    const user = await prisma.user.create({ data: { name, email, passwordHash, role } });
+    const user = await prisma.user.create({
+      data: { name, email, passwordHash, role: 'seller' },
+    });
 
     const token = createToken(user);
     res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: SEVEN_DAYS_MS });

@@ -43,7 +43,7 @@ type StoreRow = {
     description: string;
     photoUrl: string | null;
   }[];
-  _count?: { products: number };
+  _count?: { products?: number; reviews?: number };
 };
 
 // Bentuk data toko yang dikirim ke admin dan mobile
@@ -70,7 +70,7 @@ function toStoreDto(s: StoreRow) {
     logoUrl: resolveImageUrl(s.logoUrl),
     sellerId: s.sellerId,
     rating: 0,
-    reviewCount: 0,
+    reviewCount: s._count?.reviews ?? 0,
     productCount: s.products
       ? s.products.length
       : s._count?.products ?? 0,
@@ -80,12 +80,36 @@ function toStoreDto(s: StoreRow) {
 
 const listInclude = {
   category: true,
-  _count: { select: { products: true } },
+  _count: {
+    select: {
+      products: true,
+      reviews: {
+        where: {
+          type: 'store',
+          isPublic: true,
+          isDeleted: false,
+          rating: { gte: 1, lte: 5 },
+        },
+      },
+    },
+  },
 } satisfies Prisma.StoreInclude;
 
 const detailInclude = {
   category: true,
   products: { orderBy: { id: 'asc' } },
+  _count: {
+    select: {
+      reviews: {
+        where: {
+          type: 'store',
+          isPublic: true,
+          isDeleted: false,
+          rating: { gte: 1, lte: 5 },
+        },
+      },
+    },
+  },
 } satisfies Prisma.StoreInclude;
 
 type StoreFilters = {

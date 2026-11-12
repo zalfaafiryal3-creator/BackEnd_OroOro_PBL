@@ -710,6 +710,264 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
     assert.ok(Array.isArray(await response.json()));
   });
 
+  it('menghitung ulasan toko per toko dan menerapkan filter sebelum pagination', async () => {
+    const category = await prisma!.category.create({
+      data: { name: 'Kategori Review Toko' },
+    });
+    const store = await prisma!.store.create({
+      data: {
+        slug: 'review-store-uji',
+        name: 'Toko Review Uji',
+        categoryId: category.id,
+        status: 'buka',
+      },
+    });
+    const otherStore = await prisma!.store.create({
+      data: {
+        slug: 'review-store-lain',
+        name: 'Toko Review Lain',
+        categoryId: category.id,
+        status: 'buka',
+      },
+    });
+    const createStoreReview = (
+      storeId: number,
+      rating: number,
+      name: string,
+      options: { isPublic?: boolean; isDeleted?: boolean; photos?: string[] } = {},
+    ) => prisma!.review.create({
+      data: {
+        type: 'store',
+        storeId,
+        name,
+        date: 'Hari ini',
+        text: `Review ${name}`,
+        rating,
+        isPublic: options.isPublic ?? true,
+        isDeleted: options.isDeleted ?? false,
+        photos: {
+          create: (options.photos ?? []).map((url) => ({ url })),
+        },
+      },
+    });
+
+    await Promise.all([
+      createStoreReview(store.id, 5, 'Bintang Lima', {
+        photos: ['foto-1.jpg', 'foto-2.jpg', 'foto-3.jpg'],
+      }),
+      createStoreReview(store.id, 4, 'Bintang Empat'),
+      createStoreReview(store.id, 3, 'Bintang Tiga'),
+      createStoreReview(store.id, 2, 'Bintang Dua'),
+      createStoreReview(store.id, 1, 'Review Dihapus', { isDeleted: true }),
+      createStoreReview(store.id, 5, 'Review Privat', { isPublic: false }),
+      createStoreReview(store.id, 0, 'Rating Tidak Valid'),
+      createStoreReview(otherStore.id, 5, 'Review Toko Lain'),
+    ]);
+
+    const statisticsResponse = await apiRequest(
+      `/api/stores/${store.slug}/reviews/statistics`,
+    );
+    assert.equal(statisticsResponse.status, 200);
+    const statistics = await statisticsResponse.json() as {
+      data: {
+        total_reviews: number;
+        with_photo: number;
+        star_5: number;
+        star_4: number;
+        star_1_3: number;
+      };
+    };
+    assert.deepEqual(statistics.data, {
+      total_reviews: 4,
+      with_photo: 1,
+      star_5: 1,
+      star_4: 1,
+      star_1_3: 2,
+    });
+
+    const allResponse = await apiRequest(
+      `/api/stores/${store.id}/reviews?filter=all&page=1&limit=2`,
+    );
+    assert.equal(allResponse.status, 200);
+    const allReviews = await allResponse.json() as {
+      data: Array<{ rating: number }>;
+      total_count: number;
+      current_page_count: number;
+    };
+    assert.equal(allReviews.total_count, 4);
+    assert.equal(allReviews.current_page_count, 2);
+
+    const photoResponse = await apiRequest(
+      `/api/stores/${store.slug}/reviews?filter=photo`,
+    );
+    const photoReviews = await photoResponse.json() as {
+      data: Array<{ rating: number; photos: Array<{ url: string }> }>;
+      total_count: number;
+    };
+    assert.equal(photoReviews.total_count, 1);
+    assert.equal(photoReviews.data[0].rating, 5);
+    assert.equal(photoReviews.data[0].photos.length, 3);
+
+    for (const [filter, expectedRatings] of [
+      ['5', [5]],
+      ['4', [4]],
+      ['1-3', [3, 2]],
+    ] as const) {
+      const response = await apiRequest(
+        `/api/stores/${store.slug}/reviews?filter=${filter}`,
+      );
+      const result = await response.json() as {
+        data: Array<{ rating: number }>;
+        total_count: number;
+      };
+      assert.equal(result.total_count, expectedRatings.length);
+      assert.deepEqual(result.data.map((review) => review.rating).sort(), [...expectedRatings].sort());
+    }
+
+    const searchedResponse = await apiRequest(
+      `/api/stores/${store.slug}/reviews?filter=1-3&search=Bintang%20Dua`,
+    );
+    const searched = await searchedResponse.json() as {
+      data: Array<{ rating: number }>;
+      total_count: number;
+    };
+    assert.equal(searched.total_count, 1);
+    assert.deepEqual(searched.data.map((review) => review.rating), [2]);
+
+    const storeResponse = await apiRequest(`/api/stores/${store.slug}`);
+    const storeDto = await storeResponse.json() as { reviewCount: number };
+    assert.equal(storeDto.reviewCount, 4);
+
+    const submittedResponse = await jsonRequest(
+      `/api/stores/${store.slug}/reviews`,
+      {
+        name: 'Pembeli Baru',
+        date: 'Baru saja',
+        text: 'Pengalaman baik.',
+        rating: 5,
+      },
+    );
+    assert.equal(submittedResponse.status, 201);
+    const updatedStatisticsResponse = await apiRequest(
+      `/api/stores/${store.slug}/reviews/statistics`,
+    );
+    const updatedStatistics = await updatedStatisticsResponse.json() as {
+      data: { total_reviews: number; star_5: number };
+    };
+    assert.equal(updatedStatistics.data.total_reviews, 5);
+    assert.equal(updatedStatistics.data.star_5, 2);
+  });
+
+  it('membatasi halaman ulasan pasar menjadi sepuluh dan menghitung total database', async () => {
+    const ratings = [5, 4, 3, 2, 1, 5, 4, 3, 2, 1, 5];
+    await Promise.all(
+      ratings.map((rating, index) =>
+        prisma!.review.create({
+          data: {
+            type: 'market',
+            name: `Pengunjung Pasar ${index + 1}`,
+            date: 'Hari ini',
+            text: `Ulasan pasar ${index + 1}`,
+            rating,
+            overallRating: rating,
+            photos: index === 0
+              ? { create: [{ url: 'foto-pasar.jpg' }] }
+              : undefined,
+          },
+        }),
+      ),
+    );
+    await prisma!.review.create({
+      data: {
+        type: 'market',
+        name: 'Ulasan privat',
+        text: 'Tidak ditampilkan',
+        rating: 5,
+        overallRating: 5,
+        isPublic: false,
+      },
+    });
+    await prisma!.review.create({
+      data: {
+        type: 'market',
+        name: 'Ulasan terhapus',
+        text: 'Tidak ditampilkan',
+        rating: 5,
+        overallRating: 5,
+        isDeleted: true,
+      },
+    });
+
+    const firstPageResponse = await apiRequest(
+      '/api/market-reviews/page?page=1&limit=100',
+    );
+    assert.equal(firstPageResponse.status, 200);
+    const firstPage = await firstPageResponse.json() as {
+      data: Array<{ id: number }>;
+      total_count: number;
+      current_page_count: number;
+      page: number;
+      limit: number;
+    };
+    assert.equal(firstPage.total_count, 11);
+    assert.equal(firstPage.current_page_count, 10);
+    assert.equal(firstPage.page, 1);
+    assert.equal(firstPage.limit, 10);
+
+    const secondPageResponse = await apiRequest(
+      '/api/market-reviews/page?page=2&limit=10',
+    );
+    assert.equal(secondPageResponse.status, 200);
+    const secondPage = await secondPageResponse.json() as {
+      data: Array<{ id: number }>;
+      total_count: number;
+      current_page_count: number;
+      page: number;
+      limit: number;
+    };
+    assert.equal(secondPage.total_count, 11);
+    assert.equal(secondPage.current_page_count, 1);
+    assert.equal(secondPage.page, 2);
+    assert.equal(secondPage.limit, 10);
+    assert.equal(
+      new Set([...firstPage.data, ...secondPage.data].map((review) => review.id)).size,
+      11,
+    );
+
+    const statisticsResponse = await apiRequest(
+      '/api/market-reviews/statistics',
+    );
+    assert.equal(statisticsResponse.status, 200);
+    const statistics = await statisticsResponse.json() as {
+      data: {
+        total_reviews: number;
+        with_photo: number;
+        star_5: number;
+        star_4: number;
+        star_1_3: number;
+      };
+    };
+    assert.deepEqual(statistics.data, {
+      total_reviews: 11,
+      with_photo: 1,
+      star_5: 3,
+      star_4: 2,
+      star_1_3: 6,
+    });
+
+    const newReviewResponse = await jsonRequest('/api/market-reviews', {
+      name: 'Ulasan pasar baru',
+      date: 'Hari ini',
+      text: 'Tersimpan sebagai ulasan pasar.',
+      rating: 5,
+    });
+    assert.equal(newReviewResponse.status, 201);
+    const savedReview = await prisma!.review.findFirst({
+      where: { type: 'market', name: 'Ulasan pasar baru' },
+    });
+    assert.ok(savedReview);
+  });
+
   it('menangani 400, 413, 404, dan error 500 tanpa detail internal', async () => {
     const malformedJson = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
