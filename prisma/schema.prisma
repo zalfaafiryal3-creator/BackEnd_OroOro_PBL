@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -24,7 +24,7 @@ model Review {
   marketId      Int?         @map("market_id")
   name          String       @default("Anonim")
   date          String       @default("")
-  text          String
+  text          String       @db.Text
   rating        Int          @default(5)
   overallRating Int?         @map("overall_rating")
   storeId       Int?         @map("store_id")
@@ -73,13 +73,14 @@ model Store {
   establishedYear Int?
   phone           String    @default("")
   email           String    @default("")
-  description     String    @default("")
+  description     String    @default("") @db.Text
   bannerUrl       String?
   logoUrl         String?
   sellerId        Int?
   seller          User?     @relation(fields: [sellerId], references: [id])
   products        Product[]
   reviews         Review[]
+  promotions      Promotion[]
   createdAt       DateTime  @default(now())
 
   @@index([categoryId])
@@ -91,7 +92,7 @@ model Product {
   store       Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
   name        String
   price       Int     @default(0)
-  description String  @default("")
+  description String  @default("") @db.Text
   photoUrl    String?
   bookmarks   Bookmark[]
 }
@@ -106,4 +107,30 @@ model Bookmark {
 
   @@unique([userId, productId])
   @@index([productId])
+}
+
+model Promotion {
+  id            Int      @id @default(autoincrement())
+  title         String
+  store         String
+  storeId       Int?     @map("store_id")
+  storeRecord   Store?   @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  owner         String   @default("Pedagang Pasar")
+  category      String
+  description   String   @db.Text
+  bannerImage   String?  @map("banner_image") @db.Text
+  status        String
+  periodType    String   @map("period_type")
+  periodDisplay String   @map("period_display")
+  operatingHours String  @map("operating_hours")
+  terms         String   @default("") @db.Text
+  code          String   @default("")
+  quota         String   @default("0 / 100")
+  discountType  String   @default("") @map("discount_type")
+  previousStatus String? @map("previous_status")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([storeId])
 }

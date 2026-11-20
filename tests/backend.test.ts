@@ -279,6 +279,117 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
     assert.ok(category.id > 0);
   });
 
+  it('menyimpan promo admin dan menyediakannya ke aplikasi mobile', async () => {
+    const promotion = {
+      title: 'Diskon Uji',
+      store: 'Toko Uji',
+      owner: 'Pemilik Uji',
+      category: 'Zona Makanan',
+      description: 'Promo untuk pengujian.',
+      bannerImage: 'https://example.test/promo.jpg',
+      status: 'Sedang Berlangsung',
+      periodType: 'range',
+      periodDisplay: '1-30 September',
+      operatingHours: '06.00 - 17.00 WIB',
+      terms: 'Berlaku di kios.',
+      code: 'UJI10',
+      quota: '0 / 100',
+      discountType: 'Diskon Tunai',
+    };
+
+    await assertErrorResponse(
+      await jsonRequest('/api/promotions', promotion),
+      401,
+    );
+    await assertErrorResponse(
+      await jsonRequest('/api/promotions', { ...promotion, title: '' }, adminToken),
+      400,
+    );
+
+    await assertErrorResponse(
+      await jsonRequest('/api/promotions', promotion, sellerToken),
+      403,
+    );
+    const sellerStore = await prisma!.store.create({
+      data: {
+        slug: 'toko-seller-promo-uji',
+        name: 'Toko Seller Promo Uji',
+        categoryId,
+        sellerId,
+        status: 'buka',
+      },
+    });
+    const sellerPromotionResponse = await jsonRequest(
+      '/api/promotions',
+      { ...promotion, store: sellerStore.name },
+      sellerToken,
+    );
+    assert.equal(sellerPromotionResponse.status, 201);
+    const sellerPromotion = await sellerPromotionResponse.json() as { id: number; store: string };
+    assert.equal(sellerPromotion.store, sellerStore.name);
+
+    const createResponse = await jsonRequest('/api/promotions', promotion, adminToken);
+    assert.equal(createResponse.status, 201);
+    const created = await createResponse.json() as { id: number; title: string };
+    assert.equal(created.title, promotion.title);
+
+    const sellerManagedResponse = await apiRequest('/api/promotions/manage', sellerToken);
+    assert.equal(sellerManagedResponse.status, 200);
+    const sellerManaged = await sellerManagedResponse.json() as Array<{
+      id: number;
+      canManage: boolean;
+    }>;
+    assert.deepEqual(sellerManaged.map((item) => item.id), [created.id, sellerPromotion.id]);
+    assert.deepEqual(sellerManaged.map((item) => item.canManage), [false, true]);
+    await assertErrorResponse(
+      await jsonRequest(`/api/promotions/${created.id}`, { status: 'Ditangguhkan' }, sellerToken, 'PUT'),
+      403,
+    );
+    await assertErrorResponse(
+      await jsonRequest(`/api/promotions/${created.id}`, {}, sellerToken, 'DELETE'),
+      403,
+    );
+    const sellerUpdateResponse = await jsonRequest(
+      `/api/promotions/${sellerPromotion.id}`,
+      { description: 'Promo toko seller yang diperbarui.' },
+      sellerToken,
+      'PUT',
+    );
+    assert.equal(sellerUpdateResponse.status, 200);
+
+    const publicResponse = await apiRequest('/api/promotions');
+    assert.equal(publicResponse.status, 200);
+    const publicPromotions = await publicResponse.json() as Array<{ id: number }>;
+    assert.ok(publicPromotions.some((item) => item.id === created.id));
+    assert.ok(publicPromotions.some((item) => item.id === sellerPromotion.id));
+
+    const suspendResponse = await jsonRequest(
+      `/api/promotions/${created.id}`,
+      { status: 'Ditangguhkan' },
+      adminToken,
+      'PUT',
+    );
+    assert.equal(suspendResponse.status, 200);
+    const suspendedResponse = await apiRequest('/api/promotions');
+    const suspendedPromotions = await suspendedResponse.json() as Array<{ id: number }>;
+    assert.ok(!suspendedPromotions.some((item) => item.id === created.id));
+
+    const restoreResponse = await jsonRequest(
+      `/api/promotions/${created.id}`,
+      { status: 'Aktif' },
+      adminToken,
+      'PUT',
+    );
+    assert.equal(restoreResponse.status, 200);
+    const restored = await restoreResponse.json() as { status: string };
+    assert.equal(restored.status, 'Sedang Berlangsung');
+
+    assert.equal(
+      (await jsonRequest(`/api/promotions/${created.id}`, {}, adminToken, 'DELETE')).status,
+      200,
+    );
+  });
+
   it('memvalidasi toko/produk dan membatasi seller pada toko miliknya', async () => {
     await assertErrorResponse(
       await jsonRequest('/api/stores', {
@@ -311,18 +422,49 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
       status: string;
       openTime: string | null;
       closeTime: string | null;
-      products: Array<{ price: number }>;
+      products: Array<{ id: number; price: number }>;
     };
     assert.equal(ownStore.sellerId, sellerId);
     assert.equal(ownStore.status, 'menunggu_verifikasi');
     assert.equal(ownStore.products[0].price, 7000);
     assert.equal(ownStore.openTime, '06:00');
     assert.equal(ownStore.closeTime, '17:00');
+    const originalProductId = ownStore.products[0].id;
+    await prisma!.bookmark.create({
+      data: { userId: sellerId, productId: originalProductId },
+    });
+    const updateProductResponse = await jsonRequest(
+      `/api/stores/${ownStore.id}`,
+      {
+        products: [{
+          id: originalProductId,
+          name: 'Menu Uji',
+          price: 8000,
+          description: 'Harga menu diperbarui.',
+          photoUrl: null,
+        }],
+      },
+      sellerToken,
+      'PUT',
+    );
+    assert.equal(updateProductResponse.status, 200);
+    const updatedProductStore = await updateProductResponse.json() as {
+      products: Array<{ id: number; name: string; price: number }>;
+    };
+    assert.equal(updatedProductStore.products[0].id, originalProductId);
+    assert.equal(updatedProductStore.products[0].name, 'Menu Uji');
+    assert.equal(updatedProductStore.products[0].price, 8000);
+    assert.equal(
+      await prisma!.bookmark.count({
+        where: { userId: sellerId, productId: originalProductId },
+      }),
+      1,
+    );
     const sellerManagedStores = await apiRequest('/api/stores/manage', sellerToken);
     assert.equal(sellerManagedStores.status, 200);
     const sellerStoreList = await sellerManagedStores.json() as Array<{ sellerId: number | null }>;
     assert.ok(sellerStoreList.length > 0);
-    assert.ok(sellerStoreList.every((store) => store.sellerId === sellerId));
+    assert.ok(sellerStoreList.some((store) => store.sellerId === sellerId));
 
     await assertErrorResponse(
       await jsonRequest(`/api/stores/${ownStore.id}`, { status: 'tutup' }, sellerToken, 'PUT'),
@@ -358,6 +500,25 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
     }, adminToken);
     assert.equal(otherStoreResponse.status, 201);
     const otherStore = await otherStoreResponse.json() as { id: number };
+    await assertErrorResponse(
+      await jsonRequest(
+        `/api/stores/${otherStore.id}`,
+        {
+          products: [{
+            id: originalProductId,
+            name: 'Produk Toko Lain',
+            price: 8000,
+            photoUrl: null,
+          }],
+        },
+        adminToken,
+        'PUT',
+      ),
+      400,
+    );
+    const storesAfterOtherSellerAdded = await apiRequest('/api/stores/manage', sellerToken);
+    const sharedStoreList = await storesAfterOtherSellerAdded.json() as Array<{ id: number }>;
+    assert.ok(sharedStoreList.some((store) => store.id === otherStore.id));
 
     await assertErrorResponse(
       await apiRequest(`/api/stores/manage/${otherStore.id}`, sellerToken),
@@ -681,8 +842,8 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
     assert.ok(adminList.some((store) => store.slug === 'toko-mobile-baru-1'));
     const sellerStoreListResponse = await apiRequest('/api/stores/manage', sellerToken);
     assert.equal(sellerStoreListResponse.status, 200);
-    const postImportSellerList = await sellerStoreListResponse.json() as Array<{ sellerId: number | null }>;
-    assert.ok(postImportSellerList.every((store) => store.sellerId === sellerId));
+    const postImportSellerList = await sellerStoreListResponse.json() as Array<{ slug: string }>;
+    assert.ok(postImportSellerList.some((store) => store.slug === 'toko-mobile-baru-1'));
   });
 
   it('menolak rating tidak bulat dan menerima review valid', async () => {
@@ -837,6 +998,15 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
     const storeResponse = await apiRequest(`/api/stores/${store.slug}`);
     const storeDto = await storeResponse.json() as { reviewCount: number };
     assert.equal(storeDto.reviewCount, 4);
+    const managedStoresResponse = await apiRequest('/api/stores/manage', adminToken);
+    const managedStores = await managedStoresResponse.json() as Array<{
+      id: number;
+      rating: number;
+      reviewCount: number;
+    }>;
+    const managedStore = managedStores.find((item) => item.id === store.id);
+    assert.equal(managedStore?.rating, 3.5);
+    assert.equal(managedStore?.reviewCount, 4);
 
     const submittedResponse = await jsonRequest(
       `/api/stores/${store.slug}/reviews`,
@@ -856,6 +1026,15 @@ describe('Pengujian backend Pasar Oro-Oro Dowo', () => {
     };
     assert.equal(updatedStatistics.data.total_reviews, 5);
     assert.equal(updatedStatistics.data.star_5, 2);
+    const updatedManagedStoresResponse = await apiRequest('/api/stores/manage', adminToken);
+    const updatedManagedStores = await updatedManagedStoresResponse.json() as Array<{
+      id: number;
+      rating: number;
+      reviewCount: number;
+    }>;
+    const updatedManagedStore = updatedManagedStores.find((item) => item.id === store.id);
+    assert.equal(updatedManagedStore?.rating, 3.8);
+    assert.equal(updatedManagedStore?.reviewCount, 5);
   });
 
   it('membatasi halaman ulasan pasar menjadi sepuluh dan menghitung total database', async () => {

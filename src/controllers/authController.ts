@@ -67,9 +67,10 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     }
     if (errors.length > 0) return res.status(400).json({ error: errors[0], errors });
 
+    const role = body.role === 'admin' ? 'admin' : 'seller';
     const passwordHash = await hash(passwordValue, 10);
     const user = await prisma.user.create({
-      data: { name, email, passwordHash, role: 'seller' },
+      data: { name, email, passwordHash, role },
     });
 
     const token = createToken(user);

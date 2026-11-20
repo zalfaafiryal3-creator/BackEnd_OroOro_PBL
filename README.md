@@ -21,6 +21,7 @@
 | GET  | /api/stores/:id/reviews | Ambil ulasan per toko, dengan filter `?filter=all|photo|5|4|1-3`, pencarian, dan pagination |
 | GET  | /api/stores/:id/reviews/statistics | Statistik ulasan toko: `total_reviews`, `with_photo`, `star_5`, `star_4`, `star_1_3` |
 | POST | /api/stores/:id/reviews | Kirim ulasan untuk toko tertentu |
+| GET  | /api/stores/manage | Login admin/penjual; daftar toko bersama. Aksi ubah/hapus tetap dibatasi ke admin atau pemilik |
 | GET  | /api/recommendations/stores | Empat toko rekomendasi dari katalog toko dan urutan yang ditentukan |
 | GET  | /api/recommendations/products | Maksimal tiga produk rekomendasi berdasarkan rating/aktivitas ulasan toko pemilik |
 | GET  | /api/recommendations/featured-products | Produk katalog publik; default `sort=best_selling` |
@@ -32,6 +33,11 @@
 | DELETE | /api/bookmarks/:productId | Login diperlukan; hapus bookmark milik pengguna aktif |
 | GET | /api/bookmarks | Login diperlukan; daftar bookmark pengguna aktif |
 | GET | /api/bookmarks/:productId/status | Login diperlukan; status bookmark dan ketersediaan katalog |
+| GET | /api/promotions | Daftar promo publik untuk aplikasi mobile |
+| GET | /api/promotions/manage | Login admin/penjual; daftar promo bersama dengan penanda `canManage` |
+| POST | /api/promotions | Admin membuat promo; penjual hanya untuk toko miliknya |
+| PUT | /api/promotions/:id | Admin memperbarui promo; penjual hanya promo toko miliknya |
+| DELETE | /api/promotions/:id | Admin menghapus promo; penjual hanya promo toko miliknya |
 
 ## Keamanan dan pengujian
 Panduan security, validasi form, error handling, logging, contoh respons, dan checklist PBL ada di [SECURITY-VALIDATION.md](./SECURITY-VALIDATION.md).
@@ -39,6 +45,8 @@ Panduan security, validasi form, error handling, logging, contoh respons, dan ch
 Jalankan `npm test` untuk tes backend dan `npm run typecheck` untuk memeriksa tipe TypeScript.
 
 Bookmark memakai tabel `Bookmark` dengan unique constraint per pasangan pengguna/produk. Terapkan migrasi baru dengan `npx prisma migrate deploy`.
+
+Promo admin dan aplikasi mobile memakai tabel `Promotion` yang sama. Ulasan pasar dan toko disimpan pada tabel `Review` (foto di `ReviewPhoto`) di MySQL, sehingga tetap ada setelah server dimulai ulang. Terapkan migrasi yang tersedia dengan `npx prisma migrate deploy`.
 
 Skema produk saat ini belum menyimpan rating/ulasan produk, jumlah penjualan, atau stok. Karena itu API mengirim `rating: null`, `reviewCount: 0`, `salesCount: null`, dan `availabilityStatus: "catalog_listed"` untuk produk yang masih tercantum pada toko publik. Rekomendasi produk memakai rating dan volume ulasan toko pemilik secara eksplisit sebagai fallback; jika belum ada ulasan toko publik, daftar rekomendasi berlabel dikembalikan kosong. `newest` menggunakan ID produk menurun karena produk belum memiliki `createdAt`.
 
@@ -48,4 +56,4 @@ Endpoint toko rekomendasi memakai empat baris toko yang ada dan mengurutkannya s
 curl http://localhost:4000/api/store-reviews
 curl -X POST http://localhost:4000/api/store-reviews -H "Content-Type: application/json" -d '{"name":"Budi","text":"Enak sekali!","rating":5}'
 
-Database SQLite ditentukan oleh `DATABASE_URL` pada environment. Jangan menghapus file database untuk mereset data tanpa memastikan path dan memiliki backup.
+Database MySQL ditentukan oleh `DATABASE_URL` pada environment; database yang sama dapat diperiksa melalui phpMyAdmin. Jangan menghapus atau mengosongkan tabel database untuk mereset data tanpa memastikan target dan memiliki backup.

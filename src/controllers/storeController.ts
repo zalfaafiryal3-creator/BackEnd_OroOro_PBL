@@ -238,14 +238,10 @@ export async function listStores(req: Request, res: Response, next: NextFunction
 }
 
 // GET /api/stores/manage
-// Admin: semua toko
-// Seller: hanya tokonya sendiri
+// Admin dan seller dapat melihat direktori yang sama; mutasi tetap dibatasi ke pemilik.
 export async function listManagedStores(req: Request, res: Response, next: NextFunction) {
   try {
-    const user = req.user!;
-
-    const base: Prisma.StoreWhereInput =
-      user.role === 'admin' ? {} : { sellerId: user.id };
+    const base: Prisma.StoreWhereInput = {};
 
     const { filters, errors } = parseStoreFilters(req.query, true);
     if (errors.length > 0) {
@@ -487,18 +483,52 @@ export async function updateStore(req: Request, res: Response, next: NextFunctio
     }
 
     const { products, ...fields } = data;
+    if (products !== undefined) {
+      const submittedProductIds = products.flatMap((product) => (
+        product.id === undefined ? [] : [product.id]
+      ));
+      if (submittedProductIds.length > 0) {
+        const ownedProductsCount = await prisma.product.count({
+          where: { storeId: id, id: { in: submittedProductIds } },
+        });
+        if (ownedProductsCount !== submittedProductIds.length) {
+          return res.status(400).json({
+            error: 'Salah satu produk tidak terdaftar pada toko ini.',
+          });
+        }
+      }
+    }
 
     const store = await prisma.store.update({
       where: { id },
       data: {
         ...fields,
 
-        // Jika produk dikirim, daftar produk lama diganti
+        // Produk ber-ID diperbarui, yang dihilangkan dihapus, dan sisanya dibuat.
         ...(products !== undefined
           ? {
               products: {
-                deleteMany: {},
-                create: products,
+                deleteMany: {
+                  id: {
+                    notIn: products.flatMap((product) => (
+                      product.id === undefined ? [] : [product.id]
+                    )),
+                  },
+                },
+                update: products.flatMap((product) => {
+                  if (product.id === undefined) return [];
+                  const { id: productId, ...productData } = product;
+                  return [{ where: { id: productId }, data: productData }];
+                }),
+                create: products.flatMap((product) => {
+                  if (product.id !== undefined) return [];
+                  return [{
+                    name: product.name,
+                    price: product.price,
+                    description: product.description,
+                    photoUrl: product.photoUrl,
+                  }];
+                }),
               },
             }
           : {}),

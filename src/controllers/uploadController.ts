@@ -56,6 +56,11 @@ export const uploadImageHandler = async (req: Request, res: Response) => {
         {
           folder,
           resource_type: 'image',
+          // Explicitly upload without preset (server-side signed upload via API key+secret)
+          upload_preset: undefined,
+          use_filename: false,
+          unique_filename: true,
+          overwrite: false,
         },
         (error, uploadResult) => {
           if (error || !uploadResult) {

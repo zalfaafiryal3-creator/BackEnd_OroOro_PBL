@@ -4,6 +4,7 @@ export const STORE_STATUSES = ['buka', 'tutup', 'menunggu_verifikasi'] as const;
 export type StoreStatus = (typeof STORE_STATUSES)[number];
 
 export type ProductInput = {
+  id?: number;
   name: string;
   price: number;
   description: string;
@@ -302,6 +303,16 @@ export function parseStoreInput(body: unknown, mode: 'create' | 'update') {
         }
 
         const errorCount = errors.length;
+        let id: number | undefined;
+        if (Object.prototype.hasOwnProperty.call(raw, 'id')) {
+          if (mode === 'create') {
+            errors.push(`Produk ke-${index + 1}: ID tidak boleh dikirim saat membuat toko.`);
+          } else {
+            const parsedId = parsePositiveId(raw.id);
+            if (parsedId === null) errors.push(`Produk ke-${index + 1}: ID tidak valid.`);
+            else id = parsedId;
+          }
+        }
         const name = readText(raw.name, `Nama produk ke-${index + 1}`, 80, errors, true);
         const price = parsePrice(raw.price);
         if (price === null) errors.push(`Produk ke-${index + 1}: harga harus bilangan bulat Rupiah yang valid.`);
@@ -317,9 +328,13 @@ export function parseStoreInput(body: unknown, mode: 'create' | 'update') {
           : null;
 
         if (errors.length === errorCount && name !== null && price !== null) {
-          products.push({ name, price, description, photoUrl });
+          products.push({ ...(id === undefined ? {} : { id }), name, price, description, photoUrl });
         }
       });
+      const productIds = products.flatMap((product) => product.id === undefined ? [] : [product.id]);
+      if (new Set(productIds).size !== productIds.length) {
+        errors.push('ID produk tidak boleh dikirim lebih dari satu kali.');
+      }
       data.products = products;
     }
   }
