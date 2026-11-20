@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../config/database';
 
-// Satu koneksi database yang dipakai bersama oleh controller dan middleware
-export const prisma = new PrismaClient();
+export { prisma };
+export default prisma;
