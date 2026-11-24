@@ -284,7 +284,7 @@ export async function getManagedStore(req: Request, res: Response, next: NextFun
     const user = req.user!;
     if (user.role !== 'admin' && store.sellerId !== user.id) {
       return res.status(403).json({
-        error: 'Kamu hanya bisa melihat detail tokomu sendiri.',
+        error: 'Kamu hanya dapat mengelola toko milikmu sendiri.',
       });
     }
 
@@ -433,24 +433,17 @@ export async function updateStore(req: Request, res: Response, next: NextFunctio
     }
 
     const user = req.user!;
-    const isAdmin = user.role === 'admin';
+    const isAuthorized = user.role === 'admin' || user.role === 'seller';
 
-    // Seller hanya boleh mengubah toko miliknya
-    if (!isAdmin && existing.sellerId !== user.id) {
+    if (!isAuthorized) {
       return res.status(403).json({
-        error: 'Kamu hanya bisa mengubah tokomu sendiri.',
+        error: 'Akses ditolak.',
       });
     }
 
-    // Seller tidak boleh mengirim field status
-    // Admin tetap boleh mengubah status
-    if (
-      !isAdmin &&
-      Object.prototype.hasOwnProperty.call(req.body, 'status')
-    ) {
+    if (user.role === 'seller' && existing.sellerId !== user.id) {
       return res.status(403).json({
-        error:
-          'Seller tidak memiliki izin untuk mengubah status toko. Hubungi admin.',
+        error: 'Kamu hanya dapat mengelola toko milikmu sendiri.',
       });
     }
 
@@ -463,10 +456,14 @@ export async function updateStore(req: Request, res: Response, next: NextFunctio
       });
     }
 
-    if (!isAdmin) {
-      // Seller tidak boleh memindahkan kepemilikan toko
+    if (user.role === 'seller' && data.status !== undefined) {
+      return res.status(403).json({
+        error: 'Status toko hanya dapat diubah oleh admin.',
+      });
+    }
+
+    if (user.role !== 'admin') {
       delete data.sellerId;
-      delete data.status;
     }
 
     // Memastikan kategori tersedia
@@ -576,9 +573,15 @@ export async function deleteStore(req: Request, res: Response, next: NextFunctio
 
     const user = req.user!;
 
-    if (user.role !== 'admin' && existing.sellerId !== user.id) {
+    if (user.role !== 'admin' && user.role !== 'seller') {
       return res.status(403).json({
-        error: 'Kamu hanya bisa menghapus tokomu sendiri.',
+        error: 'Akses ditolak.',
+      });
+    }
+
+    if (user.role === 'seller' && existing.sellerId !== user.id) {
+      return res.status(403).json({
+        error: 'Kamu hanya dapat mengelola toko milikmu sendiri.',
       });
     }
 
