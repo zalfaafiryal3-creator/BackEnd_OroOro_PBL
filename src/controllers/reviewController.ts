@@ -11,7 +11,21 @@ const listByType = (type: ReviewType) =>
   prisma.review.findMany({
     where: { type, isDeleted: false, isPublic: true },
     orderBy: { id: 'desc' },
-    select: { id: true, name: true, date: true, text: true, rating: true },
+    select: {
+      id: true,
+      name: true,
+      date: true,
+      text: true,
+      rating: true,
+      ...(type === 'market'
+        ? {
+            ratingCleanliness: true,
+            ratingVariety: true,
+            ratingHospitality: true,
+            ratingParking: true,
+          }
+        : {}),
+    },
   });
 
 const normalizeReviewFilter = (value?: string): ReviewFilter => {
@@ -320,6 +334,10 @@ export function getPaginatedMarketReviews() {
             date: true,
             rating: true,
             overallRating: true,
+            ratingCleanliness: true,
+            ratingVariety: true,
+            ratingHospitality: true,
+            ratingParking: true,
             createdAt: true,
             photos: {
               where: { isPublic: true },
@@ -354,7 +372,19 @@ export function getAllMarketReviewStatistics() {
         isDeleted: false,
         isPublic: true,
       };
-      const [totalReviews, withPhoto, star5, star4, star1To3] = await Promise.all([
+
+      const [
+        totalReviews,
+        withPhoto,
+        star5,
+        star4,
+        star1To3,
+        overallAgg,
+        cleanlinessAgg,
+        varietyAgg,
+        hospitalityAgg,
+        parkingAgg,
+      ] = await Promise.all([
         prisma.review.count({ where: baseWhere }),
         prisma.review.count({
           where: { ...baseWhere, photos: { some: { isPublic: true } } },
@@ -364,7 +394,41 @@ export function getAllMarketReviewStatistics() {
         prisma.review.count({
           where: { ...baseWhere, overallRating: { in: [1, 2, 3] } },
         }),
+        prisma.review.aggregate({
+          where: baseWhere,
+          _avg: { overallRating: true },
+        }),
+        prisma.review.aggregate({
+          where: {
+            ...baseWhere,
+            ratingCleanliness: { not: null, gte: 1, lte: 5 },
+          },
+          _avg: { ratingCleanliness: true },
+        }),
+        prisma.review.aggregate({
+          where: { ...baseWhere, ratingVariety: { not: null, gte: 1, lte: 5 } },
+          _avg: { ratingVariety: true },
+        }),
+        prisma.review.aggregate({
+          where: {
+            ...baseWhere,
+            ratingHospitality: { not: null, gte: 1, lte: 5 },
+          },
+          _avg: { ratingHospitality: true },
+        }),
+        prisma.review.aggregate({
+          where: {
+            ...baseWhere,
+            ratingParking: { not: null, gte: 1, lte: 5 },
+          },
+          _avg: { ratingParking: true },
+        }),
       ]);
+
+      const roundAvg = (v: number | null | undefined): number => {
+        if (v === null || v === undefined || Number.isNaN(v)) return 0;
+        return Math.round(v * 10) / 10;
+      };
 
       return res.json({
         success: true,
@@ -374,6 +438,11 @@ export function getAllMarketReviewStatistics() {
           star_5: star5,
           star_4: star4,
           star_1_3: star1To3,
+          average_rating: roundAvg(overallAgg._avg.overallRating),
+          aspect_cleanliness: roundAvg(cleanlinessAgg._avg.ratingCleanliness),
+          aspect_variety: roundAvg(varietyAgg._avg.ratingVariety),
+          aspect_hospitality: roundAvg(hospitalityAgg._avg.ratingHospitality),
+          aspect_parking: roundAvg(parkingAgg._avg.ratingParking),
         },
       });
     } catch (error) {
@@ -426,6 +495,10 @@ export function getMarketReviews() {
             date: true,
             rating: true,
             overallRating: true,
+            ratingCleanliness: true,
+            ratingVariety: true,
+            ratingHospitality: true,
+            ratingParking: true,
             createdAt: true,
             photos: {
               where: { isPublic: true },
@@ -469,31 +542,78 @@ export function getMarketReviewStatistics() {
         isPublic: true,
       };
 
-      const totalReviews = await prisma.review.count({ where: baseWhere });
-      const withPhoto = await prisma.review.count({
-        where: {
-          ...baseWhere,
-          photos: { some: { isPublic: true } },
-        },
-      });
-      const star5 = await prisma.review.count({
-        where: {
-          ...baseWhere,
-          overallRating: 5,
-        },
-      });
-      const star4 = await prisma.review.count({
-        where: {
-          ...baseWhere,
-          overallRating: 4,
-        },
-      });
-      const star1To3 = await prisma.review.count({
-        where: {
-          ...baseWhere,
-          overallRating: { in: [1, 2, 3] },
-        },
-      });
+      const [
+        totalReviews,
+        withPhoto,
+        star5,
+        star4,
+        star1To3,
+        overallAgg,
+        cleanlinessAgg,
+        varietyAgg,
+        hospitalityAgg,
+        parkingAgg,
+      ] = await Promise.all([
+        prisma.review.count({ where: baseWhere }),
+        prisma.review.count({
+          where: {
+            ...baseWhere,
+            photos: { some: { isPublic: true } },
+          },
+        }),
+        prisma.review.count({
+          where: {
+            ...baseWhere,
+            overallRating: 5,
+          },
+        }),
+        prisma.review.count({
+          where: {
+            ...baseWhere,
+            overallRating: 4,
+          },
+        }),
+        prisma.review.count({
+          where: {
+            ...baseWhere,
+            overallRating: { in: [1, 2, 3] },
+          },
+        }),
+        prisma.review.aggregate({
+          where: baseWhere,
+          _avg: { overallRating: true },
+        }),
+        prisma.review.aggregate({
+          where: {
+            ...baseWhere,
+            ratingCleanliness: { not: null, gte: 1, lte: 5 },
+          },
+          _avg: { ratingCleanliness: true },
+        }),
+        prisma.review.aggregate({
+          where: { ...baseWhere, ratingVariety: { not: null, gte: 1, lte: 5 } },
+          _avg: { ratingVariety: true },
+        }),
+        prisma.review.aggregate({
+          where: {
+            ...baseWhere,
+            ratingHospitality: { not: null, gte: 1, lte: 5 },
+          },
+          _avg: { ratingHospitality: true },
+        }),
+        prisma.review.aggregate({
+          where: {
+            ...baseWhere,
+            ratingParking: { not: null, gte: 1, lte: 5 },
+          },
+          _avg: { ratingParking: true },
+        }),
+      ]);
+
+      const roundAvg = (v: number | null | undefined): number => {
+        if (v === null || v === undefined || Number.isNaN(v)) return 0;
+        return Math.round(v * 10) / 10;
+      };
 
       const payload = {
         total_reviews: totalReviews,
@@ -501,6 +621,11 @@ export function getMarketReviewStatistics() {
         star_5: star5,
         star_4: star4,
         star_1_3: star1To3,
+        average_rating: roundAvg(overallAgg._avg.overallRating),
+        aspect_cleanliness: roundAvg(cleanlinessAgg._avg.ratingCleanliness),
+        aspect_variety: roundAvg(varietyAgg._avg.ratingVariety),
+        aspect_hospitality: roundAvg(hospitalityAgg._avg.ratingHospitality),
+        aspect_parking: roundAvg(parkingAgg._avg.ratingParking),
       };
 
       return res.json({
@@ -544,6 +669,16 @@ export function createReview(type: ReviewType, storeScoped = false) {
       const isPublic = body.isPublic ?? body.is_public ?? true;
       const isDeleted = body.isDeleted ?? body.is_deleted ?? false;
       const photos = Array.isArray(body.photos) ? body.photos : [];
+
+      // Aspect ratings for market reviews (optional, 1–5 each)
+      const parseAspect = (val: unknown): number | null => {
+        if (typeof val !== 'number' || !Number.isInteger(val) || val < 1 || val > 5) return null;
+        return val;
+      };
+      const ratingCleanliness = type === 'market' ? parseAspect(body.ratingCleanliness ?? body.rating_cleanliness) : null;
+      const ratingVariety = type === 'market' ? parseAspect(body.ratingVariety ?? body.rating_variety) : null;
+      const ratingHospitality = type === 'market' ? parseAspect(body.ratingHospitality ?? body.rating_hospitality) : null;
+      const ratingParking = type === 'market' ? parseAspect(body.ratingParking ?? body.rating_parking) : null;
 
       if (typeof body.text !== 'string' || !text) {
         errors.push('Ulasan wajib berupa teks dan tidak boleh kosong.');
@@ -592,6 +727,10 @@ export function createReview(type: ReviewType, storeScoped = false) {
           text,
           rating: ratingValue,
           overallRating: Number.isNaN(overallRatingValue) ? ratingValue : overallRatingValue,
+          ratingCleanliness,
+          ratingVariety,
+          ratingHospitality,
+          ratingParking,
           isPublic: Boolean(isPublic),
           isDeleted: Boolean(isDeleted),
           photos: {

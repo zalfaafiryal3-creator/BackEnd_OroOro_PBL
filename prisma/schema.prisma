@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -19,20 +19,25 @@ model User {
 }
 
 model Review {
-  id            Int          @id @default(autoincrement())
-  type          String       // "store" (ulasan toko) atau "market" (ulasan pasar)
-  marketId      Int?         @map("market_id")
-  name          String       @default("Anonim")
-  date          String       @default("")
-  text          String       @db.Text
-  rating        Int          @default(5)
-  overallRating Int?         @map("overall_rating")
-  storeId       Int?         @map("store_id")
-  store         Store?       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  isPublic      Boolean      @default(true) @map("is_public")
-  isDeleted     Boolean      @default(false) @map("is_deleted")
-  createdAt     DateTime     @default(now())
-  photos        ReviewPhoto[]
+  id              Int          @id @default(autoincrement())
+  type            String       // "store" (ulasan toko) atau "market" (ulasan pasar)
+  marketId        Int?         @map("market_id")
+  name            String       @default("Anonim")
+  date            String       @default("")
+  text            String      
+  rating          Int          @default(5)
+  overallRating   Int?         @map("overall_rating")
+  // Aspect ratings for market reviews (1-5), null = not rated
+  ratingCleanliness   Int?     @map("rating_cleanliness")
+  ratingVariety       Int?     @map("rating_variety")
+  ratingHospitality   Int?     @map("rating_hospitality")
+  ratingParking       Int?     @map("rating_parking")
+  storeId         Int?         @map("store_id")
+  store           Store?       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  isPublic        Boolean      @default(true) @map("is_public")
+  isDeleted       Boolean      @default(false) @map("is_deleted")
+  createdAt       DateTime     @default(now())
+  photos          ReviewPhoto[]
 
   @@index([type])
   @@index([marketId])
@@ -73,7 +78,7 @@ model Store {
   establishedYear Int?
   phone           String    @default("")
   email           String    @default("")
-  description     String    @default("") @db.Text
+  description     String    @default("")
   bannerUrl       String?
   logoUrl         String?
   sellerId        Int?
@@ -92,7 +97,7 @@ model Product {
   store       Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
   name        String
   price       Int     @default(0)
-  description String  @default("") @db.Text
+  description String  @default("")
   photoUrl    String?
   bookmarks   Bookmark[]
 }
@@ -117,13 +122,13 @@ model Promotion {
   storeRecord   Store?   @relation(fields: [storeId], references: [id], onDelete: SetNull)
   owner         String   @default("Pedagang Pasar")
   category      String
-  description   String   @db.Text
-  bannerImage   String?  @map("banner_image") @db.Text
+  description   String  
+  bannerImage   String?  @map("banner_image")
   status        String
   periodType    String   @map("period_type")
   periodDisplay String   @map("period_display")
   operatingHours String  @map("operating_hours")
-  terms         String   @default("") @db.Text
+  terms         String   @default("")
   code          String   @default("")
   quota         String   @default("0 / 100")
   discountType  String   @default("") @map("discount_type")
