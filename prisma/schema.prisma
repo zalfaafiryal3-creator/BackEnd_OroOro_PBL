@@ -13,6 +13,8 @@ model User {
   email        String   @unique
   passwordHash String
   role         String   @default("seller") // "admin" atau "seller"
+  phone        String   @default("")
+  status       String   @default("Aktif")
   createdAt    DateTime @default(now())
   stores       Store[]
   bookmarks    Bookmark[]
@@ -138,6 +140,20 @@ model Promotion {
 
   @@index([status, createdAt])
   @@index([storeId])
+}
+
+model Seller {
+  id        Int      @id @default(autoincrement())
+  name      String
+  shop      String
+  block     String   @default("")
+  status    String   @default("Lapak Buka") // "Lapak Buka", "Tutup Sementara", "Menunggu Verifikasi"
+  phone     String   @default("")
+  email     String   @default("")
+  type      String   @default("Zona Kuliner") // "Zona Kuliner", "Zona Bahan Pokok"
+  photoUrl  String?  @map("photo_url")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 

@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { hash } from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -347,7 +348,25 @@ async function main() {
     }
   }
 
-  console.log(`Seed selesai: ${categories.length} kategori, ${stores.length} toko.`);
+  // Buat akun admin utama untuk mengakses admin
+  const adminEmail = 'admin@pasar.com';
+  const adminPasswordHash = await hash('adminpasar123', 10);
+  await prisma.user.upsert({
+    where: { email: adminEmail },
+    update: {
+      name: 'Admin Utama',
+      passwordHash: adminPasswordHash,
+      role: 'admin',
+    },
+    create: {
+      name: 'Admin Utama',
+      email: adminEmail,
+      passwordHash: adminPasswordHash,
+      role: 'admin',
+    },
+  });
+
+  console.log(`Seed selesai: ${categories.length} kategori, ${stores.length} toko, dan akun admin utama (admin@pasar.com).`);
 }
 
 main()

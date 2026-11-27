@@ -13,7 +13,7 @@ const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 // tidak membedakan "email tidak ada" dan "password salah".
 const DUMMY_HASH = hashSync('password-palsu', 10);
 
-type UserRow = { id: number; name: string; email: string; role: string };
+type UserRow = { id: number; name: string; email: string; role: string; phone?: string; status?: string };
 
 function createToken(user: { id: number; role: string }): string {
   return sign({ id: user.id, role: user.role }, process.env.JWT_SECRET as string, {
@@ -29,7 +29,14 @@ const cookieOptions = {
 };
 
 // Hanya data yang aman dikirim ke frontend (TANPA password)
-const publicUser = (u: UserRow) => ({ id: u.id, name: u.name, email: u.email, role: u.role });
+const publicUser = (u: UserRow) => ({
+  id: u.id,
+  name: u.name,
+  email: u.email,
+  role: u.role,
+  phone: u.phone ?? '',
+  status: u.status ?? 'Aktif',
+});
 
 // POST /api/auth/register
 export async function register(req: Request, res: Response, next: NextFunction) {
@@ -135,11 +142,53 @@ export async function me(req: Request, res: Response, next: NextFunction) {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.id },
-      select: { id: true, name: true, email: true, role: true },
+      select: { id: true, name: true, email: true, role: true, phone: true, status: true },
     });
     if (!user) return res.status(401).json({ error: 'Akun tidak ditemukan.' });
     return res.json({ user });
   } catch (error) {
+    next(error);
+  }
+}
+
+// PUT /api/auth/me  (ubah profil akun yang sedang login)
+export async function updateMe(req: Request, res: Response, next: NextFunction) {
+  try {
+    const errors: string[] = [];
+    if (!isRecord(req.body)) errors.push('Data profil harus berupa objek.');
+    const body = isRecord(req.body) ? req.body : {};
+
+    const name = cleanString(body.name);
+    const email = cleanString(body.email).toLowerCase();
+    const phone = typeof body.phone === 'string' ? cleanString(body.phone) : undefined;
+
+    if (typeof body.name !== 'string' || !isValidName(name)) {
+      errors.push('Nama harus 2 sampai 60 karakter.');
+    }
+    if (typeof body.email !== 'string' || !isValidEmail(email)) {
+      errors.push('Format email tidak valid.');
+    }
+    if (phone !== undefined && phone.length > 30) {
+      errors.push('Nomor telepon maksimal 30 karakter.');
+    }
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors[0], errors });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.user!.id },
+      data: {
+        name,
+        email,
+        ...(phone !== undefined ? { phone } : {}),
+      },
+      select: { id: true, name: true, email: true, role: true, phone: true, status: true },
+    });
+    return res.json({ user });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return res.status(409).json({ error: 'Email sudah digunakan akun lain.' });
+    }
     next(error);
   }
 }

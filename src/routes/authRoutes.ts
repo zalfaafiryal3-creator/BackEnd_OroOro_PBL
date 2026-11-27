@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, logout, me, register } from '../controllers/authController';
+import { login, logout, me, register, updateMe } from '../controllers/authController';
 import { authMiddleware } from '../middleware/authMiddleware';
 import { requireRole } from '../middleware/requireRole';
 import { loginLimiter, registerLimiter } from '../middleware/rateLimiter';
@@ -10,6 +10,7 @@ router.post('/register', registerLimiter, register);
 router.post('/login', loginLimiter, login);
 router.post('/logout', logout);
 router.get('/me', authMiddleware, me);
+router.put('/me', authMiddleware, updateMe);
 
 // Contoh route khusus admin, untuk mencoba requireRole
 router.get('/admin-check', authMiddleware, requireRole('admin'), (_req, res) => {

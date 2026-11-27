@@ -5,24 +5,30 @@ import { hash } from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  const email = 'admin@pasaroro.com';
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    console.log('Admin sudah ada, skip.');
-    return;
-  }
+  const email = 'admin@pasar.com';
+  const password = 'adminpasar123';
+  const passwordHash = await hash(password, 10);
 
-  await prisma.user.create({
-    data: {
-      name: 'Admin Pasar',
+  const user = await prisma.user.upsert({
+    where: { email },
+    update: {
+      name: 'Admin Utama',
+      passwordHash,
+      role: 'admin',
+    },
+    create: {
+      name: 'Admin Utama',
       email,
-      passwordHash: await hash('Admin123!', 10),
+      passwordHash,
       role: 'admin',
     },
   });
-  console.log('Akun admin berhasil dibuat:');
-  console.log('  Email   : admin@pasaroro.com');
-  console.log('  Password: Admin123!');
+
+  console.log('Akun admin utama berhasil dibuat/diperbarui:');
+  console.log(`  ID      : ${user.id}`);
+  console.log(`  Email   : ${user.email}`);
+  console.log(`  Role    : ${user.role}`);
+  console.log(`  Password: ${password}`);
 }
 
 main()
@@ -32,4 +38,3 @@ main()
     await prisma.$disconnect();
     process.exit(1);
   });
-

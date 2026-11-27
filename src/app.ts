@@ -18,6 +18,8 @@ import visitPlannerRoutes from './routes/visitPlannerRoutes';
 import recommendationRoutes from './routes/recommendationRoutes';
 import bookmarkRoutes from './routes/bookmarkRoutes';
 import promotionRoutes from './routes/promotionRoutes';
+import userRoutes from './routes/userRoutes';
+import sellerRoutes from './routes/sellerRoutes';
 
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
@@ -71,6 +73,8 @@ app.use('/api/visit-planner', visitPlannerRoutes);
 app.use('/api/recommendations', recommendationRoutes);
 app.use('/api/bookmarks', bookmarkRoutes);
 app.use('/api/promotions', promotionRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/sellers', sellerRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
