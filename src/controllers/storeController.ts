@@ -441,11 +441,7 @@ export async function updateStore(req: Request, res: Response, next: NextFunctio
       });
     }
 
-    if (user.role === 'seller' && existing.sellerId !== user.id) {
-      return res.status(403).json({
-        error: 'Kamu hanya dapat mengelola toko milikmu sendiri.',
-      });
-    }
+
 
     const { data, errors } = parseStoreInput(req.body, 'update');
 
@@ -576,12 +572,6 @@ export async function deleteStore(req: Request, res: Response, next: NextFunctio
     if (user.role !== 'admin' && user.role !== 'seller') {
       return res.status(403).json({
         error: 'Akses ditolak.',
-      });
-    }
-
-    if (user.role === 'seller' && existing.sellerId !== user.id) {
-      return res.status(403).json({
-        error: 'Kamu hanya dapat mengelola toko milikmu sendiri.',
       });
     }
 

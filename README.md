@@ -1,11 +1,34 @@
 # Backend Pasar Oro-Oro Dowo
 
 ## Menjalankan
-1. Pasang Node.js 22.13 atau lebih baru (cek: `node -v`)
-2. `npm install`
-3. `npm run build` (jalankan setelah instalasi awal atau saat ingin memperbarui hasil build)
-4. `npm start` (atau `npm run dev` agar otomatis restart saat file diubah)
-5. Buka http://localhost:4000 -> harus muncul {"status":"ok"}
+
+Persyaratan: Node.js 22.13 atau lebih baru dan MySQL 8 atau MariaDB yang sedang
+berjalan. Buat database kosong bernama `pasar_oro_oro_dowo` (misalnya melalui
+phpMyAdmin atau MySQL Workbench), lalu dari folder ini:
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+Edit `.env`: isi nama pengguna/kata sandi MySQL pada `DATABASE_URL` dan ganti
+`JWT_SECRET` dengan nilai acak yang panjang. Jangan menyalin `.env` ke komputer
+lain atau meng-commit-nya. Jika kata sandi MySQL berisi karakter khusus URL,
+URL-encode karakter tersebut.
+
+Kemudian jalankan:
+
+```powershell
+npm install
+npx prisma generate
+npx prisma migrate deploy
+npm run build
+npm start
+```
+
+Untuk pengembangan, gunakan `npm run dev` setelah migrasi. Buka
+http://localhost:4000; respons `{"status":"ok", ...}` menandakan API menyala.
+Jika database gagal tersambung, pastikan layanan MySQL berjalan, database sudah
+dibuat, dan kredensial pada `.env` benar.
 
 ## Endpoint
 | Method | URL | Fungsi |
@@ -57,3 +80,9 @@ curl http://localhost:4000/api/store-reviews
 curl -X POST http://localhost:4000/api/store-reviews -H "Content-Type: application/json" -d '{"name":"Budi","text":"Enak sekali!","rating":5}'
 
 Database MySQL ditentukan oleh `DATABASE_URL` pada environment; database yang sama dapat diperiksa melalui phpMyAdmin. Jangan menghapus atau mengosongkan tabel database untuk mereset data tanpa memastikan target dan memiliki backup.
+
+Untuk mengakses API dari komputer lain di jaringan lokal, set `CORS_ORIGIN` ke
+origin frontend yang dipakai (contoh `http://192.168.1.20:3000`), izinkan port
+4000 melalui firewall komputer backend, dan gunakan alamat IP komputer backend
+di konfigurasi frontend/mobile. `localhost` hanya menunjuk ke komputer yang
+sedang menjalankan aplikasi tersebut.
